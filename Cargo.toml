@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+glam = "0.29.2"
 ndarray = "0.16.1"
 video-rs = { version = "0.10.3", features = [ "ndarray" ] }
