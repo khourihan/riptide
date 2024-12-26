@@ -3,7 +3,7 @@ use ndarray::{azip, Array0, Array1, Array2, Axis};
 
 pub struct Fluid {
     density: f32,
-    pub size: UVec2,
+    size: UVec2,
     spacing: f32,
 
     rest_density: f32,
@@ -16,14 +16,13 @@ pub struct Fluid {
     dudvs: Array2<Vec2>,
     prev_uvs: Array2<Vec2>,
     pressure: Array2<f32>,
-    pub solid: Array2<f32>,
+    // TODO: Array2<bool> for solid?
+    solid: Array2<f32>,
     cell_type: Array2<CellType>,
 
-    pub positions: Array1<Vec2>,
+    positions: Array1<Vec2>,
     velocities: Array1<Vec2>,
     densities: Array2<f32>,
-    cell_particle_count: Array1<usize>,
-    first_cell_particle: Array1<usize>,
     cell_particle_indices: Array1<usize>,
 }
 
@@ -49,7 +48,7 @@ impl Fluid {
         let dudvs = Array2::from_elem((size.x as usize, size.y as usize), Vec2::ZERO);
         let prev_uvs = Array2::from_elem((size.x as usize, size.y as usize), Vec2::ZERO);
         let pressure = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let solid = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let solid = Array2::from_elem((size.x as usize, size.y as usize), 1.0);
         let cell_type = Array2::from_elem((size.x as usize, size.y as usize), CellType::Fluid);
 
         let positions = Array1::from_vec(vec![]);
@@ -61,10 +60,7 @@ impl Fluid {
             (width as f32 / particle_spacing).floor() as u32 + 1,
             (height as f32 / particle_spacing).floor() as u32 + 1,
         );
-        let cell_count = (particle_resolution.x * particle_resolution.y) as usize;
 
-        let cell_particle_count = Array1::from_elem(cell_count, 0);
-        let first_cell_particle = Array1::from_elem(cell_count + 1, 0);
         let cell_particle_indices = Array1::from_vec(vec![]);
 
         Self {
@@ -85,20 +81,62 @@ impl Fluid {
             positions,
             velocities,
             densities,
-            cell_particle_count,
-            first_cell_particle,
             cell_particle_indices,
         }
     }
 
-    pub fn insert_particle(&mut self, pos: Vec2) {
-        // let (min, max) = self.bounds();
-        // pos = (1.0 - pos) * min + pos * max;
+    pub fn resize(&mut self, width: u32, height: u32, spacing: f32) {
+        let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
+        self.spacing = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
 
+        if size.x > self.size.x {
+            let _ = self.uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+            let _ = self.dudvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+            let _ = self.prev_uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+            let _ = self.pressure.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
+            let _ = self.solid.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 1.0).view());
+            let _ = self.cell_type.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), CellType::Fluid).view());
+            let _ = self.densities.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
+        } else if size.x < self.size.x {
+            
+        }
+
+        if size.y > self.size.y {
+            let _ = self.uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+            let _ = self.dudvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+            let _ = self.prev_uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+            let _ = self.pressure.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
+            let _ = self.solid.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 1.0).view());
+            let _ = self.cell_type.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), CellType::Fluid).view());
+            let _ = self.densities.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
+        } else if size.y < self.size.y {
+
+        }
+
+        self.size = size;
+        self.particle_resolution = UVec2::new(
+            (width as f32 / self.particle_spacing).floor() as u32 + 1,
+            (height as f32 / self.particle_spacing).floor() as u32 + 1,
+        );
+    }
+
+    pub fn insert_particle(&mut self, pos: Vec2) {
         let _ = self.positions.push(Axis(0), Array0::from_elem((), pos).view());
         let _ = self.velocities.push(Axis(0), Array0::from_elem((), Vec2::ZERO).view());
         let _ = self.cell_particle_indices.push(Axis(0), Array0::from_elem((), 0).view());
         self.n_particles += 1;
+    }
+
+    pub fn set_solid(&mut self, i: usize, j: usize, v: f32) {
+        self.solid[(i, j)] = v;
+    }
+
+    pub fn iter_positions(&self) -> impl Iterator<Item = &Vec2> {
+        self.positions.iter()
+    }
+
+    pub fn size(&self) -> UVec2 {
+        self.size
     }
 
     pub fn bounds(&self) -> (Vec2, Vec2) {
@@ -117,30 +155,32 @@ impl Fluid {
     }
 
     fn push_particles_apart(&mut self, num_iters: usize) {
-        self.cell_particle_count.fill(0);
+        let cell_count = (self.particle_resolution.x * self.particle_resolution.y) as usize;
+        let mut cell_particle_count = Array1::from_elem(cell_count, 0);
+        let mut first_cell_particle = Array1::from_elem(cell_count + 1, 0);
 
         for p in self.positions.iter() {
             let pi = (p / self.particle_spacing).floor().as_uvec2()
                 .clamp(UVec2::ZERO, self.particle_resolution - 1);
             let cell_nr = pi.x * self.particle_resolution.y + pi.y;
-            self.cell_particle_count[cell_nr as usize] += 1;
+            cell_particle_count[cell_nr as usize] += 1;
         }
 
         let mut first = 0;
 
-        for (count, first_cell) in self.cell_particle_count.iter().zip(self.first_cell_particle.iter_mut()) {
+        for (count, first_cell) in cell_particle_count.iter().zip(first_cell_particle.iter_mut()) {
             first += count;
             *first_cell = first;
         }
 
-        self.first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
+        first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
 
         for (i, p) in self.positions.iter().enumerate() {
             let pi = (p / self.particle_spacing).floor().as_uvec2()
                 .clamp(UVec2::ZERO, self.particle_resolution - 1);
             let cell_nr = (pi.x * self.particle_resolution.y + pi.y) as usize;
-            self.first_cell_particle[cell_nr] -= 1;
-            self.cell_particle_indices[self.first_cell_particle[cell_nr]] = i;
+            first_cell_particle[cell_nr] -= 1;
+            self.cell_particle_indices[first_cell_particle[cell_nr]] = i;
         }
 
         let min_dist = 2.0 * self.particle_radius;
@@ -157,8 +197,8 @@ impl Fluid {
                 for xi in p0.x..=p1.x {
                     for yi in p0.y..=p1.y {
                         let cell_nr = (xi * self.particle_resolution.y + yi) as usize;
-                        let first = self.first_cell_particle[cell_nr];
-                        let last = self.first_cell_particle[cell_nr + 1];
+                        let first = first_cell_particle[cell_nr];
+                        let last = first_cell_particle[cell_nr + 1];
 
                         for j in first..last {
                             let id = self.cell_particle_indices[j];

@@ -1,27 +1,27 @@
 use draw::DrawState;
-use fluid::Fluid;
+use backend::fluid::Fluid;
 use glam::{Vec2, Vec4};
 
+mod backend;
 mod draw;
-mod fluid;
 
 fn main() {
     let fps = 60;
     let screen_width = 1280;
-    let screen_height = 1280;
+    let screen_height = 720;
 
     let mut state = DrawState::new("output/test.mp4", screen_width, screen_height, fps);
 
     let height = 3.0;
-    let width = height * (screen_width as f32 / screen_height as f32);
+    let width = 0.5 * height * (screen_width as f32 / screen_height as f32);
     let density = 1000.0;
-    let res = 80;
+    let res = 100;
     let spacing = height / res as f32;
     let particle_radius = 0.3 * spacing;
 
     let gravity = Vec2::new(0.0, -9.81);
     let flip_ratio = 0.9;
-    let num_pressure_iters = 50;
+    let num_pressure_iters = 100;
     let num_particle_iters = 2;
     let overrelaxation = 1.9;
     let compensate_drift = true;
@@ -44,13 +44,13 @@ fn main() {
         }
     }
 
-    for i in 0..fluid.size.x {
-        for j in 0..fluid.size.y {
+    for i in 0..fluid.size().x {
+        for j in 0..fluid.size().y {
             let mut s = 1.0;
-            if i == 0 || i == fluid.size.x - 1 || j == 0 {
+            if i == 0 || i == fluid.size().x - 1 || j == 0 {
                 s = 0.0;
             }
-            fluid.solid[(i as usize, j as usize)] = s;
+            fluid.set_solid(i as usize, j as usize, s);
         }
     }
 
@@ -58,11 +58,25 @@ fn main() {
     let frames = (duration_s * fps as f32) as usize;
     let dt = 1.0 / fps as f32;
 
-    for _frame in 0..frames {
+    for frame in 0..frames {
+        if frame == frames / 2 {
+            fluid.resize((width * 2.0) as u32, height as u32, spacing);
+
+            for i in 0..fluid.size().x {
+                for j in 0..fluid.size().y {
+                    let mut s = 1.0;
+                    if i == 0 || i == fluid.size().x - 1 || j == 0 {
+                        s = 0.0;
+                    }
+                    fluid.set_solid(i as usize, j as usize, s);
+                }
+            }
+        }
+
         fluid.step(dt, gravity, flip_ratio, num_pressure_iters, num_particle_iters, overrelaxation, compensate_drift, separate_particles);
         
-        for &pos in fluid.positions.iter() {
-            let mut p = pos / Vec2::new(width, height);
+        for &pos in fluid.iter_positions() {
+            let mut p = pos / Vec2::new(width * 2.0, height);
             p.y = 1.0 - p.y;
             state.circle(p, particle_radius / height * screen_height as f32, Vec4::new(0.1, 0.4, 0.8, 1.0));
         }
