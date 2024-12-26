@@ -1,4 +1,4 @@
-use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
+use glam::{UVec2, Vec2, Vec4};
 use ndarray::Array3;
 use video_rs::{encode::Settings, Encoder, Time};
 
@@ -45,7 +45,7 @@ impl DrawState {
         for c in 0..3 {
             if let Some(col) = self.frame.get_mut((p.y as usize, p.x as usize, c)) {
                 let v = *col as f32 / 255.0;
-                *col = ((v * (1.0 - color.w) + (color[c] - v) * color.w).clamp(0.0, 1.0) * 255.0) as u8;
+                *col = ((*col as f32 / 255.0 + (v * (1.0 - color.w) + (color[c] - v) * color.w)).clamp(0.0, 1.0) * 255.0) as u8;
             }
         }
     }
