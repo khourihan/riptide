@@ -1,6 +1,8 @@
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
+use super::obstacle::{Obstacle, ObstacleSet};
+
 pub struct Fluid {
     density: f32,
     size: UVec2,
@@ -241,10 +243,13 @@ impl Fluid {
         }
     }
 
-    fn handle_particle_collisions(&mut self) {
+    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet, dt: f32) {
         let (min, max) = self.bounds();
 
         azip!((p in &mut self.positions, v in &mut self.velocities) {
+            if obstacles.distance(*p) < 0.0 {
+                *v = obstacles.velocity(*p, dt);
+            }
             // TODO: Obstacle collision
 
             if p.x < min.x {
@@ -501,6 +506,24 @@ impl Fluid {
         }
     }
 
+    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet, dt: f32) {
+        for i in 1..self.size.x as usize - 2 {
+            for j in 1..self.size.y as usize - 2 {
+                self.solid[(i, j)] = 1.0;
+                let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.spacing;
+                let dist = obstacles.distance(p);
+
+                if dist < 0.0 {
+                    let v = obstacles.velocity(p, dt);
+                    self.solid[(i, j)] = 0.0;
+                    self.uvs[(i, j)] = v;
+                    self.uvs[(i + 1, j)].x = v.x;
+                    self.uvs[(i, j + 1)].y = v.y;
+                }
+            }
+        }
+    }
+
     pub fn step(
         &mut self,
         dt: f32,
@@ -511,16 +534,19 @@ impl Fluid {
         overrelaxation: f32,
         compensate_drift: bool,
         separate_particles: bool,
+        obstacles: &ObstacleSet,
     ) {
         let num_substeps: usize = 2;
         let sdt = dt / num_substeps as f32;
+
+        self.set_obstacles(obstacles, dt);
 
         for _step in 0..num_substeps {
             self.integrate_particles(sdt, gravity);
             if separate_particles {
                 self.push_particles_apart(num_particle_iters);
             }
-            self.handle_particle_collisions();
+            self.handle_particle_collisions(obstacles, dt);
             self.transfer_velocities::<true>(0.0);
             self.update_particle_density();
             self.solve_incompressibility(num_pressure_iters, sdt, overrelaxation, compensate_drift);
