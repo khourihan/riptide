@@ -7,10 +7,10 @@ mod draw;
 
 fn main() {
     let fps = 60;
-    let screen_width = 1280;
-    let screen_height = 720;
+    let screen_width = 1920;
+    let screen_height = 1080;
 
-    let mut state = DrawState::new("output/test.mp4", screen_width, screen_height, fps);
+    let mut state = DrawState::new("output/fluid.mp4", screen_width, screen_height, fps);
 
     let height = 3.0;
     let width = 0.5 * height * (screen_width as f32 / screen_height as f32);
@@ -54,12 +54,12 @@ fn main() {
         }
     }
 
-    let duration_s = 10.0;
+    let duration_s = 20.0;
     let frames = (duration_s * fps as f32) as usize;
     let dt = 1.0 / fps as f32;
 
     for frame in 0..frames {
-        if frame == frames / 2 {
+        if frame == frames / 4 {
             fluid.resize((width * 2.0) as u32, height as u32, spacing);
 
             for i in 0..fluid.size().x {
@@ -75,10 +75,12 @@ fn main() {
 
         fluid.step(dt, gravity, flip_ratio, num_pressure_iters, num_particle_iters, overrelaxation, compensate_drift, separate_particles);
         
-        for &pos in fluid.iter_positions() {
+        for (&pos, _vel, &rough) in fluid.iter_particles() {
             let mut p = pos / Vec2::new(width * 2.0, height);
             p.y = 1.0 - p.y;
-            state.circle(p, particle_radius / height * screen_height as f32, Vec4::new(0.1, 0.4, 0.8, 1.0));
+
+            let col = Vec4::new(0.0, 0.0, 1.0, 1.0).lerp(Vec4::new(1.0, 1.0, 1.0, 1.0), rough);
+            state.circle(p, particle_radius / height * screen_height as f32, col);
         }
 
         state.next();

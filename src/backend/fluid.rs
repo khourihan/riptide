@@ -16,13 +16,13 @@ pub struct Fluid {
     dudvs: Array2<Vec2>,
     prev_uvs: Array2<Vec2>,
     pressure: Array2<f32>,
-    // TODO: Array2<bool> for solid?
     solid: Array2<f32>,
     cell_type: Array2<CellType>,
+    densities: Array2<f32>,
 
     positions: Array1<Vec2>,
     velocities: Array1<Vec2>,
-    densities: Array2<f32>,
+    roughness: Array1<f32>,
     cell_particle_indices: Array1<usize>,
 }
 
@@ -50,10 +50,11 @@ impl Fluid {
         let pressure = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
         let solid = Array2::from_elem((size.x as usize, size.y as usize), 1.0);
         let cell_type = Array2::from_elem((size.x as usize, size.y as usize), CellType::Fluid);
+        let densities = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
 
         let positions = Array1::from_vec(vec![]);
         let velocities = Array1::from_vec(vec![]);
-        let densities = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let roughness = Array1::from_vec(vec![]);
 
         let particle_spacing = 2.2 * particle_radius;
         let particle_resolution = UVec2::new(
@@ -78,9 +79,10 @@ impl Fluid {
             pressure,
             solid,
             cell_type,
+            densities,
             positions,
             velocities,
-            densities,
+            roughness,
             cell_particle_indices,
         }
     }
@@ -123,6 +125,7 @@ impl Fluid {
     pub fn insert_particle(&mut self, pos: Vec2) {
         let _ = self.positions.push(Axis(0), Array0::from_elem((), pos).view());
         let _ = self.velocities.push(Axis(0), Array0::from_elem((), Vec2::ZERO).view());
+        let _ = self.roughness.push(Axis(0), Array0::from_elem((), 0.0).view());
         let _ = self.cell_particle_indices.push(Axis(0), Array0::from_elem((), 0).view());
         self.n_particles += 1;
     }
@@ -133,6 +136,10 @@ impl Fluid {
 
     pub fn iter_positions(&self) -> impl Iterator<Item = &Vec2> {
         self.positions.iter()
+    }
+
+    pub fn iter_particles(&self) -> impl Iterator<Item = (&Vec2, &Vec2, &f32)> {
+        self.positions.iter().zip(self.velocities.iter()).zip(self.roughness.iter()).map(|((p, v), r)| (p, v, r))
     }
 
     pub fn size(&self) -> UVec2 {
@@ -155,6 +162,8 @@ impl Fluid {
     }
 
     fn push_particles_apart(&mut self, num_iters: usize) {
+        const ROUGHNESS_DIFFUSION: f32 = 0.001;
+
         let cell_count = (self.particle_resolution.x * self.particle_resolution.y) as usize;
         let mut cell_particle_count = Array1::from_elem(cell_count, 0);
         let mut first_cell_particle = Array1::from_elem(cell_count + 1, 0);
@@ -219,6 +228,12 @@ impl Fluid {
 
                             self.positions[i] -= delta;
                             self.positions[id] += delta;
+
+                            let r0 = self.roughness[i];
+                            let r1 = self.roughness[id];
+                            let rough = 0.5 * (r0 + r1);
+                            self.roughness[i] = r0 + (rough - r0) * ROUGHNESS_DIFFUSION;
+                            self.roughness[id] = r1 + (rough - r1) * ROUGHNESS_DIFFUSION;
                         }
                     }
                 }
@@ -465,6 +480,27 @@ impl Fluid {
         }
     }
 
+    fn update_roughness(&mut self) {
+        let h1 = self.spacing.recip();
+        let d0 = self.rest_density;
+
+        for i in 0..self.n_particles {
+            let s = 0.01;
+            let p = self.positions[i];
+            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ONE, self.size - 1);
+
+            self.roughness[i] = (self.roughness[i] - s).clamp(0.0, 1.0);
+
+            if d0 > 0.0 {
+                let rel_density = self.densities[(pi.x as usize, pi.y as usize)] / d0;
+                if rel_density < 0.7 {
+                    let s = 0.8;
+                    self.roughness[i] = s;
+                }
+            }
+        }
+    }
+
     pub fn step(
         &mut self,
         dt: f32,
@@ -490,5 +526,7 @@ impl Fluid {
             self.solve_incompressibility(num_pressure_iters, sdt, overrelaxation, compensate_drift);
             self.transfer_velocities::<false>(flip_ratio);
         }
+
+        self.update_roughness();
     }
 }
