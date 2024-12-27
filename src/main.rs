@@ -49,8 +49,7 @@ fn main() {
 
     let obstacle_r = 2.0;
     let mut circle = Circle::new(Vec2::new(size.x / 2.0 + obstacle_r, size.y / 2.0), 0.25);
-
-    let circle_id = scene.add_obstacle(circle);
+    // let circle_id = scene.add_obstacle(circle);
 
     let duration_s = 10.0;
     let frames = (duration_s * fps as f32) as usize;
@@ -59,6 +58,34 @@ fn main() {
     for frame in 0..frames {
         let t = frame as f32 / frames as f32;
 
+        // Water drop
+        if frame == 120 || frame == 360 {
+            let dx = 2.0 * particle_radius;
+            let dy = 3f32.sqrt() / 2.0 * dx;
+            let nx = ((size.x - 2.0 * spacing - 2.0 * particle_radius) / dx).floor() as usize;
+            let ny = ((size.x - 2.0 * spacing - 2.0 * particle_radius) / dy).floor() as usize;
+            let center = size * Vec2::new(0.25, 0.75);
+            let radius = 0.5;
+
+            for i in 0..nx {
+                for j in 0..ny {
+                    let x = spacing + particle_radius + dx * i as f32 + (if j % 2 == 0 { 0.0 } else { particle_radius });
+                    let y = spacing + particle_radius + dy * j as f32;
+
+                    let p = Vec2::new(x, y);
+                    let d = p - center;
+
+                    if d.length_squared() > radius * radius {
+                        continue;
+                    }
+
+                    scene.insert_particle(Vec2::new(x, y));
+                }
+            }
+        }
+
+        // Spinning red circle
+        /*
         if frame > 60 && frame < 180 {
             let theta = t * 30.0 * std::f32::consts::TAU;
             let center = Vec2::new(size.x + obstacle_r * theta.cos(), size.y + obstacle_r * theta.sin()) / 2.0;
@@ -72,6 +99,7 @@ fn main() {
         } else {
             scene.remove_obstacle(circle_id);
         }
+        */
 
         scene.step(dt);
         

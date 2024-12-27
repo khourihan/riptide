@@ -14,15 +14,20 @@ pub struct Fluid {
     n_particles: usize,
     particle_resolution: UVec2,
 
+    /// Grid velocities.
     uvs: Array2<Vec2>,
+    /// Grid velocity deltas.
     dudvs: Array2<Vec2>,
+    /// Previous grid velocities.
     prev_uvs: Array2<Vec2>,
     pressure: Array2<f32>,
     solid: Array2<f32>,
     cell_type: Array2<CellType>,
     densities: Array2<f32>,
 
+    /// Particle positions.
     positions: Array1<Vec2>,
+    /// Particle velocities.
     velocities: Array1<Vec2>,
     roughness: Array1<f32>,
     cell_particle_indices: Array1<usize>,
@@ -310,12 +315,12 @@ impl Fluid {
             let mut sum: f32 = 0.0;
             let mut num_fluid_cells: usize = 0;
 
-            for (i, cell_type) in self.cell_type.indexed_iter() {
-                if *cell_type == CellType::Fluid {
-                    sum += self.densities[i];
+            azip!((&cell_type in &self.cell_type, &density in &self.densities) {
+                if cell_type == CellType::Fluid {
+                    sum += density;
                     num_fluid_cells += 1;
                 }
-            }
+            });
 
             if num_fluid_cells > 0 {
                 self.rest_density = sum / num_fluid_cells as f32;
@@ -377,10 +382,10 @@ impl Fluid {
                     self.uvs[i1][dim] += v * d1;
                     self.uvs[i2][dim] += v * d2;
                     self.uvs[i3][dim] += v * d3;
-                    self.dudvs[i0] += d0;
-                    self.dudvs[i1] += d1;
-                    self.dudvs[i2] += d2;
-                    self.dudvs[i3] += d3;
+                    self.dudvs[i0][dim] += d0;
+                    self.dudvs[i1][dim] += d1;
+                    self.dudvs[i2][dim] += d2;
+                    self.dudvs[i3][dim] += d3;
                 } else {
                     let offset = if dim == 0 { (1, 0) } else { (0, 1) };
                     let valid0 = self.cell_type[i0] != CellType::Air || self.cell_type[(i0.0 - offset.0, i0.1 - offset.1)] != CellType::Air;
