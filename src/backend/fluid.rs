@@ -432,7 +432,7 @@ impl Fluid {
         }
     }
 
-    fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, overrelaxation: f32, compensate_drift: bool) {
+    fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
         self.pressure.fill(0.0);
         self.prev_uvs.assign(&self.uvs);
 
@@ -473,7 +473,7 @@ impl Fluid {
                     }
 
                     let mut p = -div / s;
-                    p *= overrelaxation;
+                    p *= over_relaxation;
                     self.pressure[center] += cp * p;
 
                     self.uvs[center].x -= sx0 * p;
@@ -531,7 +531,7 @@ impl Fluid {
         flip_ratio: f32,
         num_pressure_iters: usize,
         num_particle_iters: usize,
-        overrelaxation: f32,
+        over_relaxation: f32,
         compensate_drift: bool,
         separate_particles: bool,
         obstacles: &ObstacleSet,
@@ -549,7 +549,7 @@ impl Fluid {
             self.handle_particle_collisions(obstacles, dt);
             self.transfer_velocities::<true>(0.0);
             self.update_particle_density();
-            self.solve_incompressibility(num_pressure_iters, sdt, overrelaxation, compensate_drift);
+            self.solve_incompressibility(num_pressure_iters, sdt, over_relaxation, compensate_drift);
             self.transfer_velocities::<false>(flip_ratio);
         }
 
