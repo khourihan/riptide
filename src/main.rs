@@ -1,5 +1,5 @@
 use draw::DrawState;
-use backend::{fluid::Fluid, obstacle::{circle::Circle, ObstacleSet}, scene::Scene};
+use backend::{obstacle::circle::Circle, scene::Scene};
 use glam::{Vec2, Vec4};
 
 mod backend;
@@ -14,14 +14,14 @@ fn main() {
 
     let mut scene = Scene::new()
         .aspect(screen_width as f32 / screen_height as f32)
-        .particle_radius(0.3)
+        .particle_radius(0.2)
         .build();
 
     let size = scene.size();
     let spacing = scene.spacing();
     let particle_radius = scene.particle_radius();
 
-    let water_height = 0.4;
+    let water_height = 0.8;
     let water_width = 0.6;
     let dx = 2.0 * particle_radius;
     let dy = 3f32.sqrt() / 2.0 * dx;
@@ -49,7 +49,7 @@ fn main() {
 
     let obstacle_r = 2.0;
     let mut circle = Circle::new(Vec2::new(size.x / 2.0 + obstacle_r, size.y / 2.0), 0.25);
-    // let circle_id = scene.add_obstacle(circle);
+    let circle_id = scene.add_obstacle(circle);
 
     let duration_s = 10.0;
     let frames = (duration_s * fps as f32) as usize;
@@ -59,6 +59,7 @@ fn main() {
         let t = frame as f32 / frames as f32;
 
         // Water drop
+        /*
         if frame == 120 || frame == 360 {
             let dx = 2.0 * particle_radius;
             let dy = 3f32.sqrt() / 2.0 * dx;
@@ -83,11 +84,11 @@ fn main() {
                 }
             }
         }
+        */
 
-        // Spinning red circle
-        /*
-        if frame > 60 && frame < 180 {
-            let theta = t * 30.0 * std::f32::consts::TAU;
+        // Spinning circle
+        if frame > 120 && t < 0.5 {
+            let theta = t * duration_s * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2;
             let center = Vec2::new(size.x + obstacle_r * theta.cos(), size.y + obstacle_r * theta.sin()) / 2.0;
             circle.set_position(center);
 
@@ -99,7 +100,6 @@ fn main() {
         } else {
             scene.remove_obstacle(circle_id);
         }
-        */
 
         scene.step(dt);
         

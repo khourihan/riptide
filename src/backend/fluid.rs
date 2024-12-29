@@ -4,6 +4,9 @@ use ndarray::{azip, Array0, Array1, Array2, Axis};
 use super::obstacle::{Obstacle, ObstacleSet};
 
 pub struct Fluid {
+    /// The density of the fluid, in kg/m³.
+    ///
+    /// Air in `0` kg/m³ and water is `1000` kg/m³.
     density: f32,
     size: UVec2,
     spacing: f32,
@@ -20,15 +23,20 @@ pub struct Fluid {
     dudvs: Array2<Vec2>,
     /// Previous grid velocities.
     prev_uvs: Array2<Vec2>,
+    /// Pressure of the grid.
     pressure: Array2<f32>,
+    /// Solid grid cells. `0.0` for completely solid and `1.0` for not solid.
     solid: Array2<f32>,
+    /// Grid cell types (`Fluid`, `Solid` or `Air`).
     cell_type: Array2<CellType>,
+    /// Grid densities.
     densities: Array2<f32>,
 
     /// Particle positions.
     positions: Array1<Vec2>,
     /// Particle velocities.
     velocities: Array1<Vec2>,
+    /// Fluid roughness approximation per particle.
     roughness: Array1<f32>,
     cell_particle_indices: Array1<usize>,
 }
@@ -98,28 +106,54 @@ impl Fluid {
         let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
         self.spacing = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
 
-        if size.x > self.size.x {
-            let _ = self.uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-            let _ = self.dudvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-            let _ = self.prev_uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-            let _ = self.pressure.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
-            let _ = self.solid.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 1.0).view());
-            let _ = self.cell_type.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), CellType::Fluid).view());
-            let _ = self.densities.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
-        } else if size.x < self.size.x {
-            
+        match size.x.cmp(&self.size.x) {
+            std::cmp::Ordering::Greater => {
+                let _ = self.uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+                let _ = self.dudvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+                let _ = self.prev_uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
+                let _ = self.pressure.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
+                let _ = self.solid.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 1.0).view());
+                let _ = self.cell_type.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), CellType::Fluid).view());
+                let _ = self.densities.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
+            },
+            std::cmp::Ordering::Less => {
+                for _ in 0..(self.size.x - size.x) {
+                    let i = self.uvs.len_of(Axis(0)) - 1;
+                    self.uvs.remove_index(Axis(0), i);
+                    self.dudvs.remove_index(Axis(0), i);
+                    self.prev_uvs.remove_index(Axis(0), i);
+                    self.pressure.remove_index(Axis(0), i);
+                    self.solid.remove_index(Axis(0), i);
+                    self.cell_type.remove_index(Axis(0), i);
+                    self.densities.remove_index(Axis(0), i);
+                }
+            },
+            std::cmp::Ordering::Equal => (),
         }
 
-        if size.y > self.size.y {
-            let _ = self.uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-            let _ = self.dudvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-            let _ = self.prev_uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-            let _ = self.pressure.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
-            let _ = self.solid.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 1.0).view());
-            let _ = self.cell_type.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), CellType::Fluid).view());
-            let _ = self.densities.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
-        } else if size.y < self.size.y {
-
+        match size.y.cmp(&self.size.y) {
+            std::cmp::Ordering::Greater => {
+                let _ = self.uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+                let _ = self.dudvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+                let _ = self.prev_uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
+                let _ = self.pressure.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
+                let _ = self.solid.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 1.0).view());
+                let _ = self.cell_type.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), CellType::Fluid).view());
+                let _ = self.densities.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
+            },
+            std::cmp::Ordering::Less => {
+                for _ in 0..(self.size.y - size.y) {
+                    let i = self.uvs.len_of(Axis(1)) - 1;
+                    self.uvs.remove_index(Axis(1), i);
+                    self.dudvs.remove_index(Axis(1), i);
+                    self.prev_uvs.remove_index(Axis(1), i);
+                    self.pressure.remove_index(Axis(1), i);
+                    self.solid.remove_index(Axis(1), i);
+                    self.cell_type.remove_index(Axis(1), i);
+                    self.densities.remove_index(Axis(1), i);
+                }
+            },
+            std::cmp::Ordering::Equal => (),
         }
 
         self.size = size;

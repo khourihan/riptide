@@ -124,6 +124,7 @@ pub struct SceneBuilder {
     separate_particles: bool,
 }
 
+#[allow(unused)]
 impl SceneBuilder {
     /// The height of the simulation domain.
     ///
