@@ -1,4 +1,6 @@
+use argmin::core::Operator;
 use glam::{UVec2, Vec2};
+use nalgebra::{Dyn, Matrix, Matrix2, VecStorage, Vector, U1};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
 use super::obstacle::{Obstacle, ObstacleSet};
@@ -9,6 +11,7 @@ pub struct Fluid {
     /// Air in `0` kg/m³ and water is `1000` kg/m³.
     density: f32,
     size: UVec2,
+    /// Cell size.
     spacing: f32,
 
     rest_density: f32,
@@ -585,7 +588,7 @@ impl Fluid {
             if separate_particles {
                 self.push_particles_apart(num_particle_iters);
             }
-            self.handle_particle_collisions(obstacles, dt);
+            self.handle_particle_collisions(obstacles, sdt);
             self.transfer_velocities::<true>(0.0);
             self.update_particle_density();
             self.solve_incompressibility(num_pressure_iters, sdt, over_relaxation, compensate_drift);
@@ -593,5 +596,18 @@ impl Fluid {
         }
 
         self.update_roughness();
+    }
+}
+
+struct Incompressibility {
+    m: Matrix<f32, Dyn, Dyn, VecStorage<f32, Dyn, Dyn>>,
+}
+
+impl Operator for Incompressibility {
+    type Param = Vector<f32, Dyn, VecStorage<f32, Dyn, U1>>;
+    type Output = Vector<f32, Dyn, VecStorage<f32, Dyn, U1>>;
+
+    fn apply(&self, param: &Self::Param) -> Result<Self::Output, argmin_math::Error> {
+        Ok(&self.m * param)
     }
 }
