@@ -5,8 +5,5 @@ edition = "2021"
 
 [dependencies]
 glam = "0.29.2"
-argmin = "0.10.0"
-argmin-math = { version = "0.4.0", features = [ "nalgebra_latest" ] }
 ndarray = "0.16.1"
-nalgebra = "0.33.2"
 video-rs = { version = "0.10.3", features = [ "ndarray" ] }

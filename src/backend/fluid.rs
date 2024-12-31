@@ -1,6 +1,4 @@
-use argmin::core::Operator;
 use glam::{UVec2, Vec2};
-use nalgebra::{Dyn, Matrix, Matrix2, VecStorage, Vector, U1};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
 use super::obstacle::{Obstacle, ObstacleSet};
@@ -596,18 +594,5 @@ impl Fluid {
         }
 
         self.update_roughness();
-    }
-}
-
-struct Incompressibility {
-    m: Matrix<f32, Dyn, Dyn, VecStorage<f32, Dyn, Dyn>>,
-}
-
-impl Operator for Incompressibility {
-    type Param = Vector<f32, Dyn, VecStorage<f32, Dyn, U1>>;
-    type Output = Vector<f32, Dyn, VecStorage<f32, Dyn, U1>>;
-
-    fn apply(&self, param: &Self::Param) -> Result<Self::Output, argmin_math::Error> {
-        Ok(&self.m * param)
     }
 }
