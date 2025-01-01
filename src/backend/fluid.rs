@@ -3,6 +3,7 @@ use ndarray::{azip, Array0, Array1, Array2, Axis};
 
 use super::obstacle::{Obstacle, ObstacleSet};
 
+#[derive(Debug, Clone)]
 pub struct Fluid {
     /// The density of the fluid, in kg/m³.
     ///
@@ -287,10 +288,11 @@ impl Fluid {
         let (min, max) = self.bounds();
 
         azip!((p in &mut self.positions, v in &mut self.velocities) {
-            if obstacles.distance(*p) < 0.0 {
-                *v = obstacles.velocity(*p, dt);
+            let sdf = obstacles.sdf(*p);
+            if sdf.distance < 0.0 {
+                // TODO: add velocity of obstacle to this.
+                *v = -sdf.distance * sdf.gradient / dt;
             }
-            // TODO: Obstacle collision
 
             if p.x < min.x {
                 p.x = min.x;
@@ -551,10 +553,11 @@ impl Fluid {
             for j in 1..self.size.y as usize - 2 {
                 self.solid[(i, j)] = 1.0;
                 let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.spacing;
-                let dist = obstacles.distance(p);
+                let sdf = obstacles.sdf(p);
 
-                if dist < 0.0 {
-                    let v = obstacles.velocity(p, dt);
+                if sdf.distance < 0.0 {
+                    // TODO: add velocity of obstacle to this.
+                    let v = -sdf.distance * sdf.gradient / dt;
                     self.solid[(i, j)] = 0.0;
                     self.uvs[(i, j)] = v;
                     self.uvs[(i + 1, j)].x = v.x;

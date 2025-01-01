@@ -51,7 +51,7 @@ fn main() {
     let mut circle = Circle::new(Vec2::new(size.x / 2.0 + obstacle_r, size.y / 2.0), 0.25);
     let circle_id = scene.add_obstacle(circle);
 
-    let duration_s = 10.0;
+    let duration_s = 30.0;
     let frames = (duration_s * fps as f32) as usize;
     let dt = 1.0 / fps as f32;
 

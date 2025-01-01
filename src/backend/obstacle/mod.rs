@@ -5,9 +5,19 @@ use glam::Vec2;
 pub mod circle;
 
 pub trait Obstacle {
-    fn distance(&self, p: Vec2) -> f32;
+    fn sdf(&self, p: Vec2) -> Sdf;
+}
 
-    fn velocity(&self, p: Vec2, dt: f32) -> Vec2;
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sdf {
+    pub distance: f32,
+    pub gradient: Vec2,
+}
+
+impl Sdf {
+    pub fn new(distance: f32, gradient: Vec2) -> Sdf {
+        Sdf { distance, gradient }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,34 +31,24 @@ pub struct ObstacleSet {
 impl ObstacleSet {
     pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle>>) -> Self {
         ObstacleSet {
-            obstacles
+            obstacles,
         }
     }
 }
 
 impl Obstacle for ObstacleSet {
-    fn distance(&self, p: Vec2) -> f32 {
+    fn sdf(&self, p: Vec2) -> Sdf {
         let mut dist = f32::MAX;
+        let mut gradient = Vec2::ZERO;
 
         for obstacle in self.obstacles.values() {
-            dist = dist.min(obstacle.distance(p));
-        }
-
-        dist
-    }
-
-    fn velocity(&self, p: Vec2, dt: f32) -> Vec2 {
-        let mut dist = f32::MAX;
-        let mut index = 0;
-
-        for (i, obstacle) in self.obstacles.iter() {
-            let d = obstacle.distance(p);
-            if dist > d {
-                dist = d;
-                index = *i;
+            let sd = obstacle.sdf(p);
+            if dist > sd.distance {
+                dist = sd.distance;
+                gradient = sd.gradient;
             }
         }
 
-        self.obstacles.get(&index).unwrap().velocity(p, dt)
+        Sdf::new(dist, gradient)
     }
 }
