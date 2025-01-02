@@ -1,8 +1,8 @@
 use draw::DrawState;
-use backend::{obstacle::circle::Circle, scene::Scene};
+use fluid::{obstacle::circle::Circle, scene::Scene};
 use glam::{Vec2, Vec4};
 
-mod backend;
+mod fluid;
 mod draw;
 
 fn main() {

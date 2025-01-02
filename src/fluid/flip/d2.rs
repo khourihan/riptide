@@ -1,7 +1,7 @@
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
-use crate::backend::obstacle::{Obstacle, ObstacleSet};
+use crate::fluid::obstacle::{Obstacle, ObstacleSet};
 
 use super::CellType;
 
