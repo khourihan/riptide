@@ -360,33 +360,31 @@ impl FlipFluid2D {
         }
     }
 
-    fn transfer_velocities<const TO_GRID: bool>(&mut self, flip_ratio: f32) {
+    fn transfer_velocities_to_grid(&mut self) {
         let h = self.spacing;
         let h1 = h.recip();
         let h2 = 0.5 * h;
 
-        if TO_GRID {
-            self.prev_uvs.assign(&self.uvs);
-            self.dudvs.fill(Vec2::ZERO);
-            self.uvs.fill(Vec2::ZERO);
+        self.prev_uvs.assign(&self.uvs);
+        self.dudvs.fill(Vec2::ZERO);
+        self.uvs.fill(Vec2::ZERO);
 
-            azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
-                *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
-            });
+        azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
+            *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
+        });
 
-            for p in self.positions.iter() {
-                let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.size - 1);
+        for p in self.positions.iter() {
+            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.size - 1);
 
-                if self.cell_type[(pi.x as usize, pi.y as usize)] == CellType::Air {
-                    self.cell_type[(pi.x as usize, pi.y as usize)] = CellType::Fluid;
-                }
+            if self.cell_type[(pi.x as usize, pi.y as usize)] == CellType::Air {
+                self.cell_type[(pi.x as usize, pi.y as usize)] = CellType::Fluid;
             }
         }
 
         for dim in 0..2 {
             let delta = Vec2::new(
                 if dim == 0 { 0.0 } else { h2 },
-                if dim == 0 { h2 } else { 0.0 },
+                if dim == 1 { 0.0 } else { h2 },
             );
 
             for i in 0..self.n_particles {
@@ -408,62 +406,91 @@ impl FlipFluid2D {
                 let d2 = t.x * t.y;
                 let d3 = s.x * t.y;
 
-                if TO_GRID {
-                    let v = self.velocities[i][dim];
-                    self.uvs[i0][dim] += v * d0;
-                    self.uvs[i1][dim] += v * d1;
-                    self.uvs[i2][dim] += v * d2;
-                    self.uvs[i3][dim] += v * d3;
-                    self.dudvs[i0][dim] += d0;
-                    self.dudvs[i1][dim] += d1;
-                    self.dudvs[i2][dim] += d2;
-                    self.dudvs[i3][dim] += d3;
-                } else {
-                    let offset = if dim == 0 { (1, 0) } else { (0, 1) };
-                    let valid0 = self.cell_type[i0] != CellType::Air || self.cell_type[(i0.0 - offset.0, i0.1 - offset.1)] != CellType::Air;
-                    let valid1 = self.cell_type[i1] != CellType::Air || self.cell_type[(i1.0 - offset.0, i1.1 - offset.1)] != CellType::Air;
-                    let valid2 = self.cell_type[i2] != CellType::Air || self.cell_type[(i2.0 - offset.0, i2.1 - offset.1)] != CellType::Air;
-                    let valid3 = self.cell_type[i3] != CellType::Air || self.cell_type[(i3.0 - offset.0, i3.1 - offset.1)] != CellType::Air;
-                    let v0 = if valid0 { 1.0 } else { 0.0 };
-                    let v1 = if valid1 { 1.0 } else { 0.0 };
-                    let v2 = if valid2 { 1.0 } else { 0.0 };
-                    let v3 = if valid3 { 1.0 } else { 0.0 };
+                let v = self.velocities[i][dim];
+                self.uvs[i0][dim] += v * d0;
+                self.uvs[i1][dim] += v * d1;
+                self.uvs[i2][dim] += v * d2;
+                self.uvs[i3][dim] += v * d3;
+                self.dudvs[i0][dim] += d0;
+                self.dudvs[i1][dim] += d1;
+                self.dudvs[i2][dim] += d2;
+                self.dudvs[i3][dim] += d3;
+            }
 
-                    let v = self.velocities[i][dim];
-                    let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3;
+            azip!((uv in &mut self.uvs, &dudv in &self.dudvs) {
+                if dudv[dim] > 0.0 {
+                    uv[dim] /= dudv[dim];
+                }
+            });
 
-                    if d > 0.0 {
-                        let picv = (v0 * d0 * self.uvs[i0][dim] + v1 * d1 * self.uvs[i1][dim] 
-                            + v2 * d2 * self.uvs[i2][dim] + v3 * d3 * self.uvs[i3][dim]) / d;
-                        let corr = (v0 * d0 * (self.uvs[i0][dim] - self.prev_uvs[i0][dim]) 
-                            + v1 * d1 * (self.uvs[i1][dim] - self.prev_uvs[i1][dim])
-                            + v2 * d2 * (self.uvs[i2][dim] - self.prev_uvs[i2][dim])
-                            + v3 * d3 * (self.uvs[i3][dim] - self.prev_uvs[i3][dim])) / d;
-                        let flipv = v + corr;
+            for i in 0..self.size.x as usize {
+                for j in 0..self.size.y as usize {
+                    let solid = self.cell_type[(i, j)] == CellType::Solid;
 
-                        self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
+                    if solid || (i > 0 && self.cell_type[(i - 1, j)] == CellType::Solid) {
+                        self.uvs[(i, j)].x = self.prev_uvs[(i, j)].x;
+                    }
+                    if solid || (j > 0 && self.cell_type[(i, j - 1)] == CellType::Solid) {
+                        self.uvs[(i, j)].y = self.prev_uvs[(i, j)].y;
                     }
                 }
             }
+        }
+    }
 
-            if TO_GRID {
-                azip!((uv in &mut self.uvs, &dudv in &self.dudvs) {
-                    if dudv[dim] > 0.0 {
-                        uv[dim] /= dudv[dim];
-                    }
-                });
+    fn transfer_velocities_to_particles(&mut self, flip_ratio: f32) {
+        let h = self.spacing;
+        let h1 = h.recip();
+        let h2 = 0.5 * h;
 
-                for i in 0..self.size.x as usize {
-                    for j in 0..self.size.y as usize {
-                        let solid = self.cell_type[(i, j)] == CellType::Solid;
+        for dim in 0..2 {
+            let delta = Vec2::new(
+                if dim == 0 { 0.0 } else { h2 },
+                if dim == 1 { 0.0 } else { h2 },
+            );
 
-                        if solid || (i > 0 && self.cell_type[(i - 1, j)] == CellType::Solid) {
-                            self.uvs[(i, j)].x = self.prev_uvs[(i, j)].x;
-                        }
-                        if solid || (j > 0 && self.cell_type[(i, j - 1)] == CellType::Solid) {
-                            self.uvs[(i, j)].y = self.prev_uvs[(i, j)].y;
-                        }
-                    }
+            for i in 0..self.n_particles {
+                let p = self.positions[i];
+                let pi = p.clamp(Vec2::splat(h), (self.size - 1).as_vec2() * h);
+
+                let p0 = ((pi - delta) * h1).floor().as_uvec2().min(self.size - 2);
+                let t = ((pi - delta) - p0.as_vec2() * h) * h1;
+                let p1 = (p0 + 1).min(self.size - 2);
+                let s = 1.0 - t;
+
+                let i0 = (p0.x as usize, p0.y as usize);
+                let i1 = (p1.x as usize, p0.y as usize);
+                let i2 = (p1.x as usize, p1.y as usize);
+                let i3 = (p0.x as usize, p1.y as usize);
+
+                let d0 = s.x * s.y;
+                let d1 = t.x * s.y;
+                let d2 = t.x * t.y;
+                let d3 = s.x * t.y;
+
+                let offset = if dim == 0 { (1, 0) } else { (0, 1) };
+                let valid0 = self.cell_type[i0] != CellType::Air || self.cell_type[(i0.0 - offset.0, i0.1 - offset.1)] != CellType::Air;
+                let valid1 = self.cell_type[i1] != CellType::Air || self.cell_type[(i1.0 - offset.0, i1.1 - offset.1)] != CellType::Air;
+                let valid2 = self.cell_type[i2] != CellType::Air || self.cell_type[(i2.0 - offset.0, i2.1 - offset.1)] != CellType::Air;
+                let valid3 = self.cell_type[i3] != CellType::Air || self.cell_type[(i3.0 - offset.0, i3.1 - offset.1)] != CellType::Air;
+                let v0 = if valid0 { 1.0 } else { 0.0 };
+                let v1 = if valid1 { 1.0 } else { 0.0 };
+                let v2 = if valid2 { 1.0 } else { 0.0 };
+                let v3 = if valid3 { 1.0 } else { 0.0 };
+
+                let v = self.velocities[i][dim];
+                let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3;
+
+                if d > 0.0 {
+                    let picv = (v0 * d0 * self.uvs[i0][dim] + v1 * d1 * self.uvs[i1][dim] 
+                        + v2 * d2 * self.uvs[i2][dim] + v3 * d3 * self.uvs[i3][dim]) / d;
+                    let corr = (v0 * d0 * (self.uvs[i0][dim] - self.prev_uvs[i0][dim]) 
+                        + v1 * d1 * (self.uvs[i1][dim] - self.prev_uvs[i1][dim])
+                        + v2 * d2 * (self.uvs[i2][dim] - self.prev_uvs[i2][dim])
+                        + v3 * d3 * (self.uvs[i3][dim] - self.prev_uvs[i3][dim])) / d;
+                    let flipv = v + corr;
+
+                    self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
                 }
             }
         }
@@ -585,10 +612,10 @@ impl FlipFluid2D {
                 self.push_particles_apart(num_particle_iters);
             }
             self.handle_particle_collisions(obstacles, sdt);
-            self.transfer_velocities::<true>(0.0);
+            self.transfer_velocities_to_grid();
             self.update_particle_density();
             self.solve_incompressibility(num_pressure_iters, sdt, over_relaxation, compensate_drift);
-            self.transfer_velocities::<false>(flip_ratio);
+            self.transfer_velocities_to_particles(flip_ratio);
         }
 
         self.update_roughness();
