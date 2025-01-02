@@ -1,6 +1,6 @@
 use glam::{UVec2, Vec2};
 
-use super::{fluid::Fluid, obstacle::{Obstacle, ObstacleId, ObstacleSet}};
+use super::{flip::d2::FlipFluid2D, obstacle::{Obstacle, ObstacleId, ObstacleSet}};
 
 pub struct Scene {
     height: f32,
@@ -15,7 +15,7 @@ pub struct Scene {
     compensate_drift: bool,
     separate_particles: bool,
 
-    fluid: Fluid,
+    fluid: FlipFluid2D,
     obstacles: ObstacleSet,
     n_obstacles: usize,
 }
@@ -242,7 +242,7 @@ impl SceneBuilder {
             compensate_drift: self.compensate_drift,
             separate_particles: self.separate_particles,
 
-            fluid: Fluid::new(self.density, width as u32, height as u32, spacing, particle_radius),
+            fluid: FlipFluid2D::new(self.density, width as u32, height as u32, spacing, particle_radius),
             obstacles: ObstacleSet::default(),
             n_obstacles: 0,
         }

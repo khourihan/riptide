@@ -4,6 +4,7 @@ use glam::Vec2;
 
 pub mod circle;
 
+/// An obstacle for the fluid that is unaffected by buoyancy forces.
 pub trait Obstacle {
     fn sdf(&self, p: Vec2) -> Sdf;
 }

@@ -1,10 +1,12 @@
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
-use super::obstacle::{Obstacle, ObstacleSet};
+use crate::backend::obstacle::{Obstacle, ObstacleSet};
+
+use super::CellType;
 
 #[derive(Debug, Clone)]
-pub struct Fluid {
+pub struct FlipFluid2D {
     /// The density of the fluid, in kg/m³.
     ///
     /// Air in `0` kg/m³ and water is `1000` kg/m³.
@@ -43,14 +45,7 @@ pub struct Fluid {
     cell_particle_indices: Array1<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CellType {
-    Fluid,
-    Solid,
-    Air,
-}
-
-impl Fluid {
+impl FlipFluid2D {
     pub fn new(
         density: f32,
         width: u32,
