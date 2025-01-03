@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use super::{Obstacle, Sdf};
+use super::{Obstacle2D, Sdf2D};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Circle {
@@ -22,11 +22,11 @@ impl Circle {
     }
 }
 
-impl Obstacle for Circle {
-    fn sdf(&self, p: Vec2) -> Sdf {
+impl Obstacle2D for Circle {
+    fn sdf(&self, p: Vec2) -> Sdf2D {
         let d = (p - self.position).length();
 
-        Sdf {
+        Sdf2D {
             distance: d - self.radius,
             gradient: (p - self.position) / d,
         }

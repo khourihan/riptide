@@ -1,7 +1,7 @@
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
-use crate::fluid::obstacle::{Obstacle, ObstacleSet};
+use crate::fluid::obstacle::{Obstacle2D, ObstacleSet2D};
 
 use super::CellType;
 
@@ -279,7 +279,7 @@ impl FlipFluid2D {
         }
     }
 
-    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet, dt: f32) {
+    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet2D, dt: f32) {
         let (min, max) = self.bounds();
 
         azip!((p in &mut self.positions, v in &mut self.velocities) {
@@ -570,7 +570,7 @@ impl FlipFluid2D {
         }
     }
 
-    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet, dt: f32) {
+    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet2D, dt: f32) {
         for i in 1..self.size.x as usize - 2 {
             for j in 1..self.size.y as usize - 2 {
                 self.solid[(i, j)] = 1.0;
@@ -599,7 +599,7 @@ impl FlipFluid2D {
         over_relaxation: f32,
         compensate_drift: bool,
         separate_particles: bool,
-        obstacles: &ObstacleSet,
+        obstacles: &ObstacleSet2D,
     ) {
         let num_substeps: usize = 2;
         let sdt = dt / num_substeps as f32;

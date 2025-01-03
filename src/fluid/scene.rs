@@ -1,6 +1,6 @@
 use glam::{UVec2, Vec2};
 
-use super::{flip::d2::FlipFluid2D, obstacle::{Obstacle, ObstacleId, ObstacleSet}};
+use super::{flip::d2::FlipFluid2D, obstacle::{Obstacle2D, ObstacleId, ObstacleSet2D}};
 
 pub struct Scene {
     height: f32,
@@ -16,7 +16,7 @@ pub struct Scene {
     separate_particles: bool,
 
     fluid: FlipFluid2D,
-    obstacles: ObstacleSet,
+    obstacles: ObstacleSet2D,
     n_obstacles: usize,
 }
 
@@ -69,7 +69,7 @@ impl Scene {
     }
 
     /// Adds an obstacle to the set, returning its ID.
-    pub fn add_obstacle<T: Obstacle + 'static>(&mut self, obstacle: T) -> ObstacleId {
+    pub fn add_obstacle<T: Obstacle2D + 'static>(&mut self, obstacle: T) -> ObstacleId {
         let i = self.n_obstacles;
         self.n_obstacles += 1;
 
@@ -78,13 +78,13 @@ impl Scene {
     }
 
     /// Removes an obstacle from the set, given its ID.
-    pub fn remove_obstacle(&mut self, id: ObstacleId) -> Option<Box<dyn Obstacle>> {
+    pub fn remove_obstacle(&mut self, id: ObstacleId) -> Option<Box<dyn Obstacle2D>> {
         self.obstacles.obstacles.remove(&id.0)
     }
 
     /// Insert an obstacle into the set at the given ID, overriding and returning the old value if
     /// it was previously in the set.
-    pub fn insert_obstacle<T: Obstacle + 'static>(&mut self, id: ObstacleId, obstacle: T) -> Option<Box<dyn Obstacle>> {
+    pub fn insert_obstacle<T: Obstacle2D + 'static>(&mut self, id: ObstacleId, obstacle: T) -> Option<Box<dyn Obstacle2D>> {
         self.obstacles.obstacles.insert(id.0, Box::new(obstacle))
     }
 
@@ -243,7 +243,7 @@ impl SceneBuilder {
             separate_particles: self.separate_particles,
 
             fluid: FlipFluid2D::new(self.density, width as u32, height as u32, spacing, particle_radius),
-            obstacles: ObstacleSet::default(),
+            obstacles: ObstacleSet2D::default(),
             n_obstacles: 0,
         }
     }

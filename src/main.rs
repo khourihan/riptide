@@ -3,6 +3,7 @@ use fluid::{obstacle::circle::Circle, scene::Scene};
 use glam::{Vec2, Vec4};
 
 mod fluid;
+mod io;
 mod draw;
 
 fn main() {
