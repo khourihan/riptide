@@ -28,6 +28,7 @@ impl<R: Read> FluidDataDecoder<R> {
 
     pub fn decode(&mut self) -> Result<FluidData, DecodingError> {
         let dim = self.read_value::<u8>()?;
+        let fps = self.read_value::<u32>()?;
         let n_frames = self.read_value::<u64>()?;
         let mut size: SmallVec<[_; 4]> = SmallVec::new();
 
@@ -44,7 +45,7 @@ impl<R: Read> FluidDataDecoder<R> {
             let positions = std::iter::from_fn(|| {
                 count += 1;
 
-                if count < n_particles {
+                if count <= n_particles {
                     Some(self.read_value::<f32>())
                 } else {
                     None
@@ -57,7 +58,8 @@ impl<R: Read> FluidDataDecoder<R> {
         }
 
         Ok(FluidData {
-            dim: dim as usize,
+            dim,
+            fps,
             size,
             frames,
         })
@@ -65,7 +67,8 @@ impl<R: Read> FluidDataDecoder<R> {
 }
 
 pub struct FluidData {
-    pub dim: usize,
+    pub dim: u8,
+    pub fps: u32,
     size: SmallVec<[f32; 4]>,
     pub frames: Vec<FluidDataFrame>,
 }
@@ -83,6 +86,10 @@ pub struct FluidDataFrame {
 pub struct FluidDataArray(Vec<f32>);
 
 impl FluidDataArray {
+    pub fn iter<const D: usize>(&self) -> impl Iterator<Item = [f32; D]> + use<'_, D> {
+        self.0.chunks_exact(D).map(|chunk| <[f32; D]>::try_from(chunk).unwrap())
+    }
+
     pub fn get<const D: usize>(&self, i: usize) -> [f32; D] {
         self.0[i..i + D].try_into().unwrap()
     }

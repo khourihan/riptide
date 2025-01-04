@@ -21,11 +21,12 @@ impl<W: Write> FluidDataEncoder<W> {
         }
     }
 
-    pub fn encode_file_header<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>, num_steps: u64) -> Result<(), EncodingError>
+    pub fn encode_file_header<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>, fps: u32, num_steps: u64) -> Result<(), EncodingError>
     where 
         F: Fluid<D, Params = P>,
     {
         self.writer.write_all(&[D as u8])?;
+        self.writer.write_all(&fps.to_ne_bytes())?;
         self.writer.write_all(&num_steps.to_ne_bytes())?;
 
         for i in 0..D {
@@ -45,6 +46,15 @@ impl<W: Write> FluidDataEncoder<W> {
         for v in values {
             self.writer.write_all(&v.to_bytes())?;
         }
+
+        Ok(())
+    }
+
+    pub fn encode_step<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>) -> Result<(), EncodingError>
+    where 
+        F: Fluid<D, Params = P>,
+    {
+        scene.fluid.encode_state(self)?;
 
         Ok(())
     }
