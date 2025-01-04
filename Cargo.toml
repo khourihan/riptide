@@ -8,3 +8,4 @@ glam = "0.29.2"
 ndarray = "0.16.1"
 video-rs = { version = "0.10.3", features = [ "ndarray" ] }
 thiserror = "2.0.9"
+smallvec = "1.13.2"

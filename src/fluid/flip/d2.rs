@@ -1,7 +1,7 @@
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
-use crate::fluid::obstacle::{Obstacle2D, ObstacleSet2D};
+use crate::{fluid::{obstacle::{Obstacle, ObstacleSet}, Fluid}, io::encode::FluidDataEncoder};
 
 use super::CellType;
 
@@ -279,14 +279,14 @@ impl FlipFluid2D {
         }
     }
 
-    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet2D, dt: f32) {
+    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
         let (min, max) = self.bounds();
 
         azip!((p in &mut self.positions, v in &mut self.velocities) {
-            let sdf = obstacles.sdf(*p);
+            let sdf = obstacles.sdf((*p).into());
             if sdf.distance < 0.0 {
                 // TODO: add velocity of obstacle to this.
-                *v = -sdf.distance * sdf.gradient / dt;
+                *v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
             }
 
             if p.x < min.x {
@@ -570,16 +570,16 @@ impl FlipFluid2D {
         }
     }
 
-    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet2D, dt: f32) {
+    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
         for i in 1..self.size.x as usize - 2 {
             for j in 1..self.size.y as usize - 2 {
                 self.solid[(i, j)] = 1.0;
                 let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.spacing;
-                let sdf = obstacles.sdf(p);
+                let sdf = obstacles.sdf(p.into());
 
                 if sdf.distance < 0.0 {
                     // TODO: add velocity of obstacle to this.
-                    let v = -sdf.distance * sdf.gradient / dt;
+                    let v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
                     self.solid[(i, j)] = 0.0;
                     self.uvs[(i, j)] = v;
                     self.uvs[(i + 1, j)].x = v.x;
@@ -588,36 +588,60 @@ impl FlipFluid2D {
             }
         }
     }
+}
 
-    pub fn step(
-        &mut self,
-        dt: f32,
-        gravity: Vec2,
-        flip_ratio: f32,
-        num_pressure_iters: usize,
-        num_particle_iters: usize,
-        over_relaxation: f32,
-        compensate_drift: bool,
-        separate_particles: bool,
-        obstacles: &ObstacleSet2D,
-    ) {
-        let num_substeps: usize = 2;
-        let sdt = dt / num_substeps as f32;
+pub struct FlipFluid2DParams {
+    pub num_substeps: usize,
+    pub gravity: Vec2,
+    pub flip_ratio: f32,
+    pub num_pressure_iters: usize,
+    pub num_particle_iters: usize,
+    pub over_relaxation: f32,
+    pub compensate_drift: bool,
+    pub separate_particles: bool,
+}
+
+impl Default for FlipFluid2DParams {
+    fn default() -> Self {
+        Self {
+            num_substeps: 2,
+            gravity: Vec2::new(0.0, -9.81),
+            flip_ratio: 0.9,
+            num_pressure_iters: 100,
+            num_particle_iters: 2,
+            over_relaxation: 1.9,
+            compensate_drift: true,
+            separate_particles: true,
+        }
+    }
+}
+
+impl Fluid<2> for FlipFluid2D {
+    type Params = FlipFluid2DParams;
+
+    fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet<2>) {
+        let sdt = dt / params.num_substeps as f32;
 
         self.set_obstacles(obstacles, dt);
 
-        for _step in 0..num_substeps {
-            self.integrate_particles(sdt, gravity);
-            if separate_particles {
-                self.push_particles_apart(num_particle_iters);
+        for _step in 0..params.num_substeps {
+            self.integrate_particles(sdt, params.gravity);
+            if params.separate_particles {
+                self.push_particles_apart(params.num_particle_iters);
             }
             self.handle_particle_collisions(obstacles, sdt);
             self.transfer_velocities_to_grid();
             self.update_particle_density();
-            self.solve_incompressibility(num_pressure_iters, sdt, over_relaxation, compensate_drift);
-            self.transfer_velocities_to_particles(flip_ratio);
+            self.solve_incompressibility(params.num_pressure_iters, sdt, params.over_relaxation, params.compensate_drift);
+            self.transfer_velocities_to_particles(params.flip_ratio);
         }
 
         self.update_roughness();
+    }
+    
+    fn encode_state<W: std::io::Write>(&self, encoder: &mut FluidDataEncoder<W>) -> Result<(), crate::io::encode::EncodingError> {
+        encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
+
+        Ok(())
     }
 }

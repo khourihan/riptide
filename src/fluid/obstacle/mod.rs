@@ -1,40 +1,21 @@
 use std::collections::HashMap;
 
-use glam::{Vec2, Vec3};
-
 pub mod circle;
 
-/// A 2D obstacle for a fluid that is unaffected by buoyancy forces.
-pub trait Obstacle2D {
-    fn sdf(&self, p: Vec2) -> Sdf2D;
+/// An obstacle for a fluid that is unaffected by buoyancy forces.
+pub trait Obstacle<const D: usize> {
+    fn sdf(&self, p: [f32; D]) -> Sdf<D>;
 }
 
-/// A 3D obstacle for a fluid that is unaffected by buoyancy forces.
-pub trait Obstacle3D {
-    fn sdf(&self, p: Vec3) -> Sdf3D;
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sdf2D {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sdf<const D: usize> {
     pub distance: f32,
-    pub gradient: Vec2,
+    pub gradient: [f32; D],
 }
 
-impl Sdf2D {
-    pub fn new(distance: f32, gradient: Vec2) -> Sdf2D {
-        Sdf2D { distance, gradient }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Sdf3D {
-    pub distance: f32,
-    pub gradient: Vec3,
-}
-
-impl Sdf3D {
-    pub fn new(distance: f32, gradient: Vec3) -> Sdf3D {
-        Sdf3D { distance, gradient }
+impl<const D: usize> Sdf<D> {
+    pub fn new(distance: f32, gradient: [f32; D]) -> Sdf<D> {
+        Sdf { distance, gradient }
     }
 }
 
@@ -42,22 +23,22 @@ impl Sdf3D {
 pub struct ObstacleId(pub usize);
 
 #[derive(Default)]
-pub struct ObstacleSet2D {
-    pub obstacles: HashMap<usize, Box<dyn Obstacle2D>>,
+pub struct ObstacleSet<const D: usize> {
+    pub obstacles: HashMap<usize, Box<dyn Obstacle<D>>>,
 }
 
-impl ObstacleSet2D {
-    pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle2D>>) -> Self {
-        ObstacleSet2D {
+impl<const D: usize> ObstacleSet<D> {
+    pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle<D>>>) -> Self {
+        ObstacleSet {
             obstacles,
         }
     }
 }
 
-impl Obstacle2D for ObstacleSet2D {
-    fn sdf(&self, p: Vec2) -> Sdf2D {
+impl<const D: usize> Obstacle<D> for ObstacleSet<D> {
+    fn sdf(&self, p: [f32; D]) -> Sdf<D> {
         let mut dist = f32::MAX;
-        let mut gradient = Vec2::ZERO;
+        let mut gradient = [0.0; D];
 
         for obstacle in self.obstacles.values() {
             let sd = obstacle.sdf(p);
@@ -67,36 +48,6 @@ impl Obstacle2D for ObstacleSet2D {
             }
         }
 
-        Sdf2D::new(dist, gradient)
-    }
-}
-
-#[derive(Default)]
-pub struct ObstacleSet3D {
-    pub obstacles: HashMap<usize, Box<dyn Obstacle3D>>,
-}
-
-impl ObstacleSet3D {
-    pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle3D>>) -> Self {
-        ObstacleSet3D {
-            obstacles,
-        }
-    }
-}
-
-impl Obstacle3D for ObstacleSet3D {
-    fn sdf(&self, p: Vec3) -> Sdf3D {
-        let mut dist = f32::MAX;
-        let mut gradient = Vec3::ZERO;
-
-        for obstacle in self.obstacles.values() {
-            let sd = obstacle.sdf(p);
-            if dist > sd.distance {
-                dist = sd.distance;
-                gradient = sd.gradient;
-            }
-        }
-
-        Sdf3D::new(dist, gradient)
+        Sdf::new(dist, gradient)
     }
 }

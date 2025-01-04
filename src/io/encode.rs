@@ -2,7 +2,9 @@ use std::io::Write;
 
 use thiserror::Error;
 
-use crate::fluid::scene::Scene;
+use crate::fluid::{scene::Scene, Fluid};
+
+use super::as_bytes::AsBytes;
 
 pub struct FluidDataEncoder<W: Write> {
     writer: W,
@@ -19,11 +21,31 @@ impl<W: Write> FluidDataEncoder<W> {
         }
     }
 
-    fn encode_header(&mut self) -> Result<(), EncodingError> {
+    pub fn encode_file_header<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>, num_steps: u64) -> Result<(), EncodingError>
+    where 
+        F: Fluid<D, Params = P>,
+    {
+        self.writer.write_all(&[D as u8])?;
+        self.writer.write_all(&num_steps.to_ne_bytes())?;
+
+        for i in 0..D {
+            self.writer.write_all(&scene.size()[i].to_bytes())?
+        }
+
         Ok(())
     }
 
-    fn encode_step(&mut self, scene: &Scene) -> Result<(), EncodingError> {
+    pub fn encode_section<const N: usize, T, I>(&mut self, len: usize, values: I) -> Result<(), EncodingError>
+    where
+        I: Iterator<Item = T>,
+        T: AsBytes<N>,
+    {
+        self.writer.write_all(&(len as u64).to_ne_bytes())?;
+
+        for v in values {
+            self.writer.write_all(&v.to_bytes())?;
+        }
+
         Ok(())
     }
 }

@@ -1,5 +1,5 @@
 use draw::DrawState;
-use fluid::{obstacle::circle::Circle, scene::Scene};
+use fluid::{flip::d2::{FlipFluid2D, FlipFluid2DParams}, obstacle::circle::Circle, scene::Scene};
 use glam::{Vec2, Vec4};
 
 mod fluid;
@@ -10,17 +10,23 @@ fn main() {
     let fps = 60;
     let screen_width = 1920;
     let screen_height = 1080;
+    let aspect = screen_width as f32 / screen_height as f32;
 
     let mut state = DrawState::new("output/fluid.mp4", screen_width, screen_height, fps);
 
-    let mut scene = Scene::new()
-        .aspect(screen_width as f32 / screen_height as f32)
-        .particle_radius(0.2)
-        .build();
+    let height = 3.0;
+    let resolution = 100;
+    let width = height * aspect;
+    let spacing = height / resolution as f32;
+    let particle_radius = 0.2;
 
-    let size = scene.size();
-    let spacing = scene.spacing();
-    let particle_radius = scene.particle_radius();
+    let fluid = FlipFluid2D::new(1000.0, width as u32, height as u32, spacing, particle_radius * spacing);
+    let params = FlipFluid2DParams::default();
+
+    let mut scene = Scene::new(fluid, params, [width, height]);
+
+    let size = Vec2::new(width, height);
+    let particle_radius = particle_radius * spacing;
 
     let water_height = 0.8;
     let water_width = 0.6;
@@ -33,18 +39,18 @@ fn main() {
         for j in 0..ny {
             let x = spacing + particle_radius + dx * i as f32 + (if j % 2 == 0 { 0.0 } else { particle_radius });
             let y = spacing + particle_radius + dy * j as f32;
-            scene.insert_particle(Vec2::new(x, y));
+            scene.fluid.insert_particle(Vec2::new(x, y));
         }
     }
 
-    let grid_size = scene.grid_size();
+    let grid_size = scene.fluid.size();
     for i in 0..grid_size.x {
         for j in 0..grid_size.y {
             let mut s = 1.0;
             if i == 0 || i == grid_size.x - 1 || j == 0 {
                 s = 0.0;
             }
-            scene.set_solid(i as usize, j as usize, s);
+            scene.fluid.set_solid(i as usize, j as usize, s);
         }
     }
 
@@ -104,8 +110,8 @@ fn main() {
 
         scene.step(dt);
         
-        for (&pos, _vel, &rough) in scene.iter_particles() {
-            let mut p = pos / Vec2::new(size.x, size.y);
+        for (&pos, _vel, &rough) in scene.fluid.iter_particles() {
+            let mut p = pos / size;
             p.y = 1.0 - p.y;
 
             let col = Vec4::new(0.0, 0.0, 1.0, 1.0).lerp(Vec4::new(1.0, 1.0, 1.0, 1.0), rough);
