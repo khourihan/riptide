@@ -3,6 +3,7 @@ use std::{fs::File, path::PathBuf, str::FromStr};
 use clap::{Parser, Subcommand};
 use draw::DrawState;
 use glam::{Vec2, Vec4};
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use io::{decode::FluidDataDecoder, encode::FluidDataEncoder};
 use smallvec::SmallVec;
 
@@ -136,7 +137,12 @@ fn main() {
 
             let mut state = DrawState::new(outfile, screen_width, screen_height, fps);
 
-            for frame in data.frames {
+            let bar_template = "Rendering {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
+            let style = ProgressStyle::with_template(bar_template).unwrap()
+                .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+            let progress = ProgressBar::new(data.frames.len() as u64).with_style(style);
+
+            for frame in data.frames.into_iter().progress_with(progress) {
                 for pos in frame.positions.iter::<2>() {
                     let mut p = Vec2::from(pos) / size;
                     p.y = 1.0 - p.y;

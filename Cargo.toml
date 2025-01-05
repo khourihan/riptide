@@ -10,3 +10,4 @@ video-rs = { version = "0.10.3", features = [ "ndarray" ] }
 thiserror = "2.0.9"
 smallvec = "1.13.2"
 clap = { version = "4.5.23", features = [ "derive" ] }
+indicatif = "0.17.9"

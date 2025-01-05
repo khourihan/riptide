@@ -1,5 +1,6 @@
 use std::{io::Read, mem::{self, MaybeUninit}};
 
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use smallvec::SmallVec;
 use thiserror::Error;
 
@@ -39,7 +40,12 @@ impl<R: Read> FluidDataDecoder<R> {
 
         let mut frames = Vec::new();
 
-        for _ in 0..n_frames {
+        let bar_template = "Decoding Fluid Data {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
+        let style = ProgressStyle::with_template(bar_template).unwrap()
+            .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        let progress = ProgressBar::new(n_frames).with_style(style);
+
+        for _ in (0..n_frames).progress_with(progress) {
             let n_particles = dim as u64 * self.read_value::<u64>()?;
             let mut count = 0;
             let positions = std::iter::from_fn(|| {

@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use glam::Vec2;
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
 use crate::{fluid::{flip::d2::{FlipFluid2D, FlipFluid2DParams}, obstacle::circle::Circle, scene::Scene}, io::encode::FluidDataEncoder};
 
@@ -55,7 +56,12 @@ pub fn run_d2<W: Write>(
 
     encoder.encode_file_header(&scene, fps, frames as u64).unwrap();
 
-    for frame in 0..frames {
+    let bar_template = "Running Simulation {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
+    let style = ProgressStyle::with_template(bar_template).unwrap()
+        .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+    let progress = ProgressBar::new(frames as u64).with_style(style);
+
+    for frame in (0..frames).progress_with(progress) {
         let t = frame as f32 / frames as f32;
 
         // Water drop
