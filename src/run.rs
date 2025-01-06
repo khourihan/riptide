@@ -3,7 +3,8 @@ use std::io::Write;
 use glam::Vec2;
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
-use crate::{fluid::{flip::d2::{FlipFluid2D, FlipFluid2DParams}, obstacle::circle::Circle, scene::Scene}, io::encode::FluidDataEncoder};
+use riptide_fluids::{flip::d2::{FlipFluid2D, FlipFluid2DParams}, obstacle::circle::Circle, scene::Scene};
+use riptide_io::encode::FluidDataEncoder;
 
 pub fn run_d2<W: Write>(
     mut encoder: FluidDataEncoder<W>,

@@ -1,0 +1,13 @@
+[package]
+name = "riptide-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+riptide-io.workspace = true
+
+glam.workspace = true
+ndarray.workspace = true
+indicatif.workspace = true
+
+video-rs = { version = "0.10.3", features = [ "ndarray" ] }

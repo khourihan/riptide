@@ -1,0 +1,12 @@
+[package]
+name = "riptide-io"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+riptide-fluids.workspace = true
+
+thiserror.workspace = true
+indicatif.workspace = true
+glam.workspace = true
+smallvec.workspace = true

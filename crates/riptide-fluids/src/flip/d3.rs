@@ -1,7 +1,7 @@
 use glam::{UVec3, Vec3};
 use ndarray::{azip, Array0, Array1, Array3, Axis};
 
-use crate::fluid::{obstacle::{Obstacle, ObstacleSet}, Fluid};
+use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 
 use super::CellType;
 
@@ -37,7 +37,7 @@ pub struct FlipFluid3D {
     densities: Array3<f32>,
 
     /// Particle positions.
-    positions: Array1<Vec3>,
+    pub positions: Array1<Vec3>,
     /// Particle velocities.
     velocities: Array1<Vec3>,
     /// Fluid roughness approximation per particle.
@@ -705,11 +705,5 @@ impl Fluid<3> for FlipFluid3D {
         }
 
         self.update_roughness();
-    }
-
-    fn encode_state<W: std::io::Write>(&self, encoder: &mut crate::io::encode::FluidDataEncoder<W>) -> Result<(), crate::io::encode::EncodingError> {
-        encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
-
-        Ok(())
     }
 }

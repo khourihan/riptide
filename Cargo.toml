@@ -3,11 +3,31 @@ name = "riptide"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace]
+members = [
+    "crates/riptide-fluids", 
+    "crates/riptide-io",
+    "crates/riptide-render",
+]
+
+[workspace.dependencies]
+riptide-fluids = { path = "crates/riptide-fluids" }
+riptide-io = { path = "crates/riptide-io" }
+riptide-render = { path = "crates/riptide-render" }
+
 glam = "0.29.2"
 ndarray = "0.16.1"
-video-rs = { version = "0.10.3", features = [ "ndarray" ] }
 thiserror = "2.0.9"
-smallvec = "1.13.2"
-clap = { version = "4.5.23", features = [ "derive" ] }
 indicatif = "0.17.9"
+smallvec = "1.13.2"
+
+[dependencies]
+riptide-fluids.workspace = true
+riptide-io.workspace = true
+riptide-render.workspace = true
+
+glam.workspace = true
+indicatif.workspace = true
+smallvec.workspace = true
+
+clap = { version = "4.5.23", features = [ "derive" ] }

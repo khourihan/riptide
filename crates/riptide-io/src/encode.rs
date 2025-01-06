@@ -2,7 +2,9 @@ use std::io::Write;
 
 use thiserror::Error;
 
-use crate::fluid::{scene::Scene, Fluid};
+use riptide_fluids::{scene::Scene, Fluid};
+
+use crate::EncodeFluid;
 
 use super::as_bytes::AsBytes;
 
@@ -52,7 +54,7 @@ impl<W: Write> FluidDataEncoder<W> {
 
     pub fn encode_step<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>) -> Result<(), EncodingError>
     where 
-        F: Fluid<D, Params = P>,
+        F: EncodeFluid
     {
         scene.fluid.encode_state(self)?;
 
