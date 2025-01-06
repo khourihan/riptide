@@ -1,5 +1,5 @@
 [package]
-name = "riptide-render"
+name = "riptide-view"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,5 +9,8 @@ riptide-io.workspace = true
 glam.workspace = true
 ndarray.workspace = true
 indicatif.workspace = true
+
+bevy = "0.15.1"
+bitflags = "2.6.0"
 
 video-rs = { version = "0.10.3", features = [ "ndarray" ] }

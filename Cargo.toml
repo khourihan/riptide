@@ -7,13 +7,13 @@ edition = "2021"
 members = [
     "crates/riptide-fluids", 
     "crates/riptide-io",
-    "crates/riptide-render",
+    "crates/riptide-view",
 ]
 
 [workspace.dependencies]
 riptide-fluids = { path = "crates/riptide-fluids" }
 riptide-io = { path = "crates/riptide-io" }
-riptide-render = { path = "crates/riptide-render" }
+riptide-view = { path = "crates/riptide-view" }
 
 glam = "0.29.2"
 ndarray = "0.16.1"
@@ -24,7 +24,7 @@ smallvec = "1.13.2"
 [dependencies]
 riptide-fluids.workspace = true
 riptide-io.workspace = true
-riptide-render.workspace = true
+riptide-view.workspace = true
 
 glam.workspace = true
 indicatif.workspace = true

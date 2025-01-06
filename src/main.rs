@@ -121,7 +121,7 @@ fn main() {
             outfile,
             resolution,
         } => {
-            riptide_render::render_2d(datfile, outfile, resolution);
+            riptide_view::render_2d(datfile, outfile, resolution);
         },
     }
 }

@@ -5,6 +5,7 @@ use glam::{Vec2, Vec4};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use riptide_io::decode::FluidDataDecoder;
 
+mod particles;
 pub mod draw;
 
 pub fn render_2d(
