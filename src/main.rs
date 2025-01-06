@@ -49,7 +49,7 @@ enum Commands {
         #[arg(short, long)]
         outfile: PathBuf,
 
-        #[arg(short, long, value_parser = parse_vect::<2, usize>, default_value = "1920,1080")]
+        #[arg(short, long, value_parser = parse_vect::<2, usize>, default_value = "1920x1080")]
         resolution: [usize; 2],
     }
 }
