@@ -11,6 +11,7 @@ ndarray.workspace = true
 indicatif.workspace = true
 
 bevy = "0.15.1"
+bevy_panorbit_camera = "0.21.2"
 bitflags = "2.6.0"
 
 video-rs = { version = "0.10.3", features = [ "ndarray" ] }

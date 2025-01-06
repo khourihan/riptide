@@ -3,10 +3,23 @@ use std::{fs::File, path::PathBuf};
 use draw::DrawState;
 use glam::{Vec2, Vec4};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use bevy::prelude::*;
+use playback::PlaybackPlugin;
 use riptide_io::decode::FluidDataDecoder;
 
 mod particles;
+mod playback;
 pub mod draw;
+
+pub fn view_3d(datfile: PathBuf) {
+    // let mut decoder = FluidDataDecoder::new(File::open(datfile).unwrap());
+    // let data = decoder.decode().unwrap();
+
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(PlaybackPlugin {})
+        .run();
+}
 
 pub fn render_2d(
     datfile: PathBuf,

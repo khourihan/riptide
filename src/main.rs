@@ -38,14 +38,8 @@ enum Commands {
         #[arg(short, long, default_value = "0.2")]
         radius: f32,
     },
-    Render {
+    View {
         datfile: PathBuf,
-
-        #[arg(short, long)]
-        outfile: PathBuf,
-
-        #[arg(short, long, value_parser = parse_vect::<2, usize>, default_value = "1920x1080")]
-        resolution: [usize; 2],
     }
 }
 
@@ -116,12 +110,10 @@ fn main() {
                 run::run_d2(encoder, fps, Vec2::new(size[0], size[1]), res, radius);
             }
         },
-        Commands::Render {
+        Commands::View {
             datfile,
-            outfile,
-            resolution,
         } => {
-            riptide_view::render_2d(datfile, outfile, resolution);
+            riptide_view::view_3d(datfile);
         },
     }
 }

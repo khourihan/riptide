@@ -73,6 +73,13 @@ struct Fragment {
 
 @fragment
 fn fragment(fragment: Fragment) -> @location(0) vec4<f32> {
+    let uv_norm = fragment.uv * 2.0 - 1.0;
+    let d = dot(uv_norm, uv_norm);
+
+    if (d > 1.0) {
+        discard;
+    }
+
     let color = particle.color;
 
 #ifdef VERTEX_COLOR

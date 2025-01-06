@@ -103,6 +103,7 @@ pub fn prepare_particle_bind_group(
     ));
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn queue_particles(
     mut views: Query<(Entity, &ExtractedView, &RenderVisibleEntities, &Msaa)>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
@@ -215,7 +216,7 @@ impl FromWorld for ParticlePipeline {
             "particle_layout",
             &[BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
