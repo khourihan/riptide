@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write, path::PathBuf};
+use std::{fs::File, io::{BufWriter, Write}, mem, path::PathBuf};
 
 use thiserror::Error;
 
@@ -62,7 +62,7 @@ impl FluidDataEncoder {
         F: EncodeFluid,
     {
         let path = self.frame_path(self.current_frame);
-        let writer = File::create(path)?;
+        let writer = BufWriter::new(File::create(path)?);
 
         scene.fluid.encode_state(&mut FluidFrameEncoder { writer })?;
 
@@ -73,20 +73,30 @@ impl FluidDataEncoder {
 }
 
 pub struct FluidFrameEncoder<W: Write> {
-    writer: W,
+    writer: BufWriter<W>,
 }
 
 impl<W: Write> FluidFrameEncoder<W> {
-    pub fn encode_section<const N: usize, T, I>(&mut self, len: usize, values: I) -> Result<(), EncodingError>
-    where
-        I: Iterator<Item = T>,
-        T: AsBytes<N>,
-    {
+    pub fn encode_section<T>(&mut self, len: usize, values: &[T]) -> Result<(), EncodingError> {
         self.writer.write_all(&(len as u64).to_ne_bytes())?;
 
-        for v in values {
-            self.writer.write_all(&v.to_bytes())?;
-        }
+        let bytes: Vec<_> = values.iter().flat_map(|v| {
+            let mut b = Vec::with_capacity(mem::size_of::<T>());
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    std::ptr::addr_of!(v).cast::<u8>(),
+                    b.as_mut_ptr(),
+                    mem::size_of::<T>(),
+                );
+
+                b.set_len(mem::size_of::<T>());
+            }
+
+            b
+        }).collect();
+
+        self.writer.write_all(&bytes)?;
 
         Ok(())
     }

@@ -42,6 +42,7 @@ fn setup(
 fn spawn_particles(
     mut commands: Commands,
     mut fluid: ResMut<FluidDataDecoder>,
+    meta: Res<FluidMetadata>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut next_state: ResMut<NextState<SetupState>>,
     particles_query: Query<Entity, With<Particle3d>>,
@@ -55,8 +56,10 @@ fn spawn_particles(
     let Some(frame) = frame else {
         return;
     };
+
+    let size: Vec3 = meta.0.size::<3>().into();
     
-    let mesh = meshes.add(Rectangle::from_size(Vec2::splat(0.3 / 50.0)));
+    let mesh = meshes.add(Rectangle::from_size(Vec2::splat(0.3 / 50.0 * size.y)));
 
     commands.spawn((
         Mesh3d(mesh),

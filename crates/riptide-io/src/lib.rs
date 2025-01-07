@@ -13,7 +13,7 @@ pub trait EncodeFluid {
 
 impl EncodeFluid for FlipFluid2D {
     fn encode_state<W: std::io::Write>(&self, encoder: &mut FluidFrameEncoder<W>) -> Result<(), EncodingError> {
-        encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
+        encoder.encode_section(self.positions.len(), self.positions.as_slice().unwrap())?;
 
         Ok(())
     }
@@ -21,7 +21,7 @@ impl EncodeFluid for FlipFluid2D {
 
 impl EncodeFluid for FlipFluid3D {
     fn encode_state<W: std::io::Write>(&self, encoder: &mut FluidFrameEncoder<W>) -> Result<(), EncodingError> {
-        encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
+        encoder.encode_section(self.positions.len(), self.positions.as_slice().unwrap())?;
 
         Ok(())
     }
