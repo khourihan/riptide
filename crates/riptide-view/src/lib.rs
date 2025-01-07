@@ -12,11 +12,12 @@ mod playback;
 pub mod draw;
 
 pub fn view_3d(datfile: PathBuf) {
-    // let mut decoder = FluidDataDecoder::new(File::open(datfile).unwrap());
-    // let data = decoder.decode().unwrap();
+    let mut decoder = FluidDataDecoder::new(File::open(datfile).unwrap());
+    let data = decoder.decode().unwrap();
 
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(playback::FluidData(data))
         .add_plugins(PlaybackPlugin {})
         .run();
 }

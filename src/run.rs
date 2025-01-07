@@ -1,9 +1,9 @@
 use std::io::Write;
 
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
-use riptide_fluids::{flip::d2::{FlipFluid2D, FlipFluid2DParams}, obstacle::circle::Circle, scene::Scene};
+use riptide_fluids::{flip::{d2::{FlipFluid2D, FlipFluid2DParams}, d3::{FlipFluid3D, FlipFluid3DParams}}, obstacle::circle::Circle, scene::Scene};
 use riptide_io::encode::FluidDataEncoder;
 
 pub fn run_d2<W: Write>(
@@ -107,6 +107,72 @@ pub fn run_d2<W: Write>(
             scene.remove_obstacle(circle_id);
         }
 
+        scene.step(dt);
+        encoder.encode_step(&scene).unwrap();
+    }
+}
+
+pub fn run_d3<W: Write>(
+    mut encoder: FluidDataEncoder<W>,
+    fps: u32,
+    size: Vec3,
+    resolution: u32,
+    particle_radius: f32,
+) {
+    let spacing = size.y / resolution as f32;
+    let particle_radius = particle_radius * spacing;
+
+    let fluid = FlipFluid3D::new(1000.0, size.as_uvec3(), spacing, particle_radius);
+    let params = FlipFluid3DParams::default();
+
+    let mut scene = Scene::new(fluid, params, [size.x, size.y, size.z]);
+
+    let water_height = 0.8;
+    let water_width = 0.6;
+    let water_depth = 0.6;
+    let dx = 2.0 * particle_radius;
+    let dy = 3f32.sqrt() / 2.0 * dx;
+    let dz = dx;
+    let nx = ((water_width * size.x - 2.0 * spacing - 2.0 * particle_radius) / dx).floor() as usize;
+    let ny = ((water_height * size.y - 2.0 * spacing - 2.0 * particle_radius) / dy).floor() as usize;
+    let nz = ((water_depth * size.z - 2.0 * spacing - 2.0 * particle_radius) / dz).floor() as usize;
+
+    for i in 0..nx {
+        for j in 0..ny {
+            for k in 0..nz {
+                let x = spacing + particle_radius + dx * i as f32 + (if j % 2 == 0 { 0.0 } else { particle_radius });
+                let y = spacing + particle_radius + dy * j as f32;
+                let z = spacing + particle_radius + dz * k as f32 + (if j % 2 == 0 { 0.0 } else { particle_radius });
+                scene.fluid.insert_particle(Vec3::new(x, y, z));
+            }
+        }
+    }
+
+    let grid_size = scene.fluid.size();
+    for i in 0..grid_size.x {
+        for j in 0..grid_size.y {
+            for k in 0..grid_size.z {
+                let mut s = 1.0;
+                if i == 0 || i == grid_size.x - 1 || j == 0 || k == 0 || k == grid_size.z - 1 {
+                    s = 0.0;
+                }
+                scene.fluid.set_solid(i as usize, j as usize, k as usize, s);
+            }
+        }
+    }
+
+    let duration_s = 5.0;
+    let frames = (duration_s * fps as f32) as usize;
+    let dt = 1.0 / fps as f32;
+
+    encoder.encode_file_header(&scene, fps, frames as u64).unwrap();
+
+    let bar_template = "Running Simulation {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
+    let style = ProgressStyle::with_template(bar_template).unwrap()
+        .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+    let progress = ProgressBar::new(frames as u64).with_style(style);
+
+    for _frame in (0..frames).progress_with(progress) {
         scene.step(dt);
         encoder.encode_step(&scene).unwrap();
     }

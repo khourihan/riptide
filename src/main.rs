@@ -1,7 +1,7 @@
 use std::{fs::File, path::PathBuf, str::FromStr};
 
 use clap::{Parser, Subcommand};
-use glam::Vec2;
+use glam::{Vec2, Vec3};
 use riptide_io::encode::FluidDataEncoder;
 use smallvec::SmallVec;
 
@@ -108,6 +108,8 @@ fn main() {
 
             if dim == 2 {
                 run::run_d2(encoder, fps, Vec2::new(size[0], size[1]), res, radius);
+            } else if dim == 3 {
+                run::run_d3(encoder, fps, Vec3::new(size[0], size[1], size[2]), res, radius);
             }
         },
         Commands::View {

@@ -182,7 +182,7 @@ impl FlipFluid3D {
     fn push_particles_apart(&mut self, num_iters: usize) {
         const ROUGHNESS_DIFFUSION: f32 = 0.001;
 
-        let cell_count = (self.particle_resolution.x * self.particle_resolution.y) as usize;
+        let cell_count = (self.particle_resolution.x * self.particle_resolution.y * self.particle_resolution.z) as usize;
         let mut cell_particle_count = Array1::from_elem(cell_count, 0);
         let mut first_cell_particle = Array1::from_elem(cell_count + 1, 0);
 
