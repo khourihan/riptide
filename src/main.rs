@@ -1,4 +1,4 @@
-use std::{fs::File, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 use clap::{Parser, Subcommand};
 use glam::{Vec2, Vec3};
@@ -18,10 +18,13 @@ struct Cli {
 enum Commands {
     Run {
         #[arg(short, long)]
-        outfile: PathBuf,
+        outdir: PathBuf,
 
         #[arg(short, long)]
         fps: u32,
+
+        #[arg(short, long)]
+        time: f32,
 
         #[arg(short, long)]
         dim: u8,
@@ -39,7 +42,7 @@ enum Commands {
         radius: f32,
     },
     View {
-        datfile: PathBuf,
+        datdir: PathBuf,
     }
 }
 
@@ -85,8 +88,9 @@ fn main() {
 
     match cli.command {
         Commands::Run {
-            outfile,
+            outdir: outfile,
             fps,
+            time,
             dim,
             mut size,
             res,
@@ -104,24 +108,25 @@ fn main() {
                 return;
             }
 
-            let encoder = FluidDataEncoder::new(File::create(outfile).unwrap());
+            let frames = (time * fps as f32) as u64;
+            let encoder = FluidDataEncoder::new(outfile, frames, fps).unwrap();
 
             if dim == 2 {
-                run::run_d2(encoder, fps, Vec2::new(size[0], size[1]), res, radius);
+                run::run_d2(encoder, fps, frames, Vec2::new(size[0], size[1]), res, radius);
             } else if dim == 3 {
-                run::run_d3(encoder, fps, Vec3::new(size[0], size[1], size[2]), res, radius);
+                run::run_d3(encoder, fps, frames, Vec3::new(size[0], size[1], size[2]), res, radius);
             }
         },
         Commands::View {
-            datfile,
+            datdir,
         } => {
-            let mut decoder = FluidDataDecoder::new(File::open(datfile).unwrap());
-            let data = decoder.decode().unwrap();
+            let mut decoder = FluidDataDecoder::new(datdir);
+            let meta = decoder.decode_metadata().unwrap();
 
-            if data.dim == 2 {
-                riptide_view::view_2d(data);
-            } else if data.dim == 3 {
-                riptide_view::view_3d(data);
+            if meta.dim == 2 {
+                riptide_view::view_2d(decoder, meta);
+            } else if meta.dim == 3 {
+                riptide_view::view_3d(decoder, meta);
             }
         },
     }

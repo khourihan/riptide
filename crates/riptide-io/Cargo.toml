@@ -7,6 +7,5 @@ edition = "2021"
 riptide-fluids.workspace = true
 
 thiserror.workspace = true
-indicatif.workspace = true
 glam.workspace = true
 smallvec.workspace = true

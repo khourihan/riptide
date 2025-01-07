@@ -4,31 +4,33 @@
 use bevy::prelude::*;
 use fps::FpsOverlayPlugin;
 use playback::{d3::Playback3DPlugin, d2::Playback2DPlugin};
-use riptide_io::decode::FluidData;
+use riptide_io::decode::{FluidDataDecoder, FluidMetadata};
 
 mod particles_3d;
 mod playback;
 mod fps;
 
-pub fn view_2d(data: FluidData) {
+pub fn view_2d(decoder: FluidDataDecoder, meta: FluidMetadata) {
     App::new()
         .add_plugins((
             DefaultPlugins,
             FpsOverlayPlugin::default(),
         ))
         .add_plugins(Playback2DPlugin)
-        .insert_resource(playback::FluidData(data))
+        .insert_resource(playback::FluidDataDecoder(decoder))
+        .insert_resource(playback::FluidMetadata(meta))
         .run();
 }
 
-pub fn view_3d(data: FluidData) {
+pub fn view_3d(decoder: FluidDataDecoder, meta: FluidMetadata) {
     App::new()
         .add_plugins((
             DefaultPlugins,
             FpsOverlayPlugin::default(),
         ))
         .add_plugins(Playback3DPlugin)
-        .insert_resource(playback::FluidData(data))
+        .insert_resource(playback::FluidDataDecoder(decoder))
+        .insert_resource(playback::FluidMetadata(meta))
         .run();
 }
 

@@ -1,14 +1,13 @@
-use std::io::Write;
-
 use glam::{Vec2, Vec3};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
 use riptide_fluids::{flip::{d2::{FlipFluid2D, FlipFluid2DParams}, d3::{FlipFluid3D, FlipFluid3DParams}}, obstacle::circle::Circle, scene::Scene};
 use riptide_io::encode::FluidDataEncoder;
 
-pub fn run_d2<W: Write>(
-    mut encoder: FluidDataEncoder<W>,
+pub fn run_d2(
+    mut encoder: FluidDataEncoder,
     fps: u32,
+    frames: u64,
     size: Vec2,
     resolution: u32,
     particle_radius: f32,
@@ -51,16 +50,16 @@ pub fn run_d2<W: Write>(
     let mut circle = Circle::new(Vec2::new(size.x / 2.0 + obstacle_r, size.y / 2.0), 0.25);
     let circle_id = scene.add_obstacle(circle);
 
-    let duration_s = 10.0;
-    let frames = (duration_s * fps as f32) as usize;
     let dt = 1.0 / fps as f32;
-
-    encoder.encode_file_header(&scene, fps, frames as u64).unwrap();
 
     let bar_template = "Running Simulation {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
     let style = ProgressStyle::with_template(bar_template).unwrap()
         .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-    let progress = ProgressBar::new(frames as u64).with_style(style);
+    let progress = ProgressBar::new(frames).with_style(style);
+
+    let duration_s = frames as f32 / fps as f32;
+
+    encoder.encode_metadata(&scene).unwrap();
 
     for frame in (0..frames).progress_with(progress) {
         let t = frame as f32 / frames as f32;
@@ -108,13 +107,14 @@ pub fn run_d2<W: Write>(
         }
 
         scene.step(dt);
-        encoder.encode_step(&scene).unwrap();
+        encoder.encode_frame(&scene).unwrap();
     }
 }
 
-pub fn run_d3<W: Write>(
-    mut encoder: FluidDataEncoder<W>,
+pub fn run_d3(
+    mut encoder: FluidDataEncoder,
     fps: u32,
+    frames: u64,
     size: Vec3,
     resolution: u32,
     particle_radius: f32,
@@ -161,19 +161,17 @@ pub fn run_d3<W: Write>(
         }
     }
 
-    let duration_s = 5.0;
-    let frames = (duration_s * fps as f32) as usize;
     let dt = 1.0 / fps as f32;
-
-    encoder.encode_file_header(&scene, fps, frames as u64).unwrap();
 
     let bar_template = "Running Simulation {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
     let style = ProgressStyle::with_template(bar_template).unwrap()
         .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-    let progress = ProgressBar::new(frames as u64).with_style(style);
+    let progress = ProgressBar::new(frames).with_style(style);
+
+    encoder.encode_metadata(&scene).unwrap();
 
     for _frame in (0..frames).progress_with(progress) {
         scene.step(dt);
-        encoder.encode_step(&scene).unwrap();
+        encoder.encode_frame(&scene).unwrap();
     }
 }

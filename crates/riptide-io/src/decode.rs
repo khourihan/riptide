@@ -1,91 +1,121 @@
-use std::{io::Read, mem::{self, MaybeUninit}};
+use std::{fs::File, io::{BufRead, BufReader, Read}, mem::{self, MaybeUninit}, path::PathBuf};
 
-use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 use smallvec::SmallVec;
 use thiserror::Error;
 
-pub struct FluidDataDecoder<R: Read> {
-    reader: R,
+pub struct FluidDataDecoder {
+    /// The path to the directory into which the fluid data resides.
+    path: PathBuf,
+    dim: u8,
+    num_frames: u64,
+    current_frame: u64,
 }
 
-impl<R: Read> FluidDataDecoder<R> {
-    pub fn new(reader: R) -> FluidDataDecoder<R> {
+impl FluidDataDecoder {
+    pub fn new(path: PathBuf) -> FluidDataDecoder {
         Self {
-            reader,
+            path,
+            dim: 0,
+            num_frames: 0,
+            current_frame: 0,
         }
     }
 
-    fn read_value<T>(&mut self) -> Result<T, DecodingError> {
-        let mut bytes = vec![0; mem::size_of::<T>()];
-        self.reader.read_exact(&mut bytes)?;
+    fn read_value<const N: usize, T, R: BufRead>(reader: &mut R) -> Result<T, DecodingError> {
+        let mut bytes = [0; N];
+        reader.read_exact(&mut bytes)?;
 
         let mut to: MaybeUninit<T> = MaybeUninit::uninit();
 
         unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), to.as_mut_ptr().cast::<u8>(), mem::size_of::<T>());
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), to.as_mut_ptr().cast::<u8>(), N);
             Ok(to.assume_init())
         }
     }
 
-    pub fn decode(&mut self) -> Result<FluidData, DecodingError> {
-        let dim = self.read_value::<u8>()?;
-        let fps = self.read_value::<u32>()?;
-        let n_frames = self.read_value::<u64>()?;
+    fn read_values<T, R: BufRead>(reader: &mut R, count: usize) -> Result<Vec<T>, DecodingError> {
+        let mut bytes = vec![0; mem::size_of::<T>() * count];
+        reader.read_exact(&mut bytes)?;
+
+        Ok(bytes.chunks_exact(mem::size_of::<T>()).map(|b| {
+            let mut to: MaybeUninit<T> = MaybeUninit::uninit();
+
+            unsafe {
+                std::ptr::copy_nonoverlapping(b.as_ptr(), to.as_mut_ptr().cast::<u8>(), mem::size_of::<T>());
+                to.assume_init()
+            }
+        }).collect())
+    }
+
+    fn frame_path(&self, frame: u64) -> PathBuf {
+        let max_digits = (self.num_frames - 1).checked_ilog10().unwrap_or(0) + 1;
+        let zeros = max_digits - (frame.checked_ilog10().unwrap_or(0) + 1);
+
+        self.path.join(format!("{}{frame}.dat", "0".repeat(zeros as usize)))
+    }
+
+    pub fn decode_metadata(&mut self) -> Result<FluidMetadata, DecodingError> {
+        let path = self.path.join("_meta");
+        let mut reader = BufReader::new(File::open(path)?);
+
+        let dim = Self::read_value::<1, u8, _>(&mut reader)?;
+        let fps = Self::read_value::<4, u32, _>(&mut reader)?;
+        let num_frames = Self::read_value::<8, u64, _>(&mut reader)?;
         let mut size: SmallVec<[_; 4]> = SmallVec::new();
 
         for _ in 0..dim {
-            let v = self.read_value::<f32>()?;
+            let v = Self::read_value::<4, f32, _>(&mut reader)?;
             size.push(v);
         }
 
-        let mut frames = Vec::new();
+        self.dim = dim;
+        self.num_frames = num_frames;
 
-        let bar_template = "Decoding Fluid Data {spinner:.green} [{elapsed}] [{bar:50.white/white}] {pos}/{len} ({eta})";
-        let style = ProgressStyle::with_template(bar_template).unwrap()
-            .progress_chars("=> ").tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-        let progress = ProgressBar::new(n_frames).with_style(style);
-
-        for _ in (0..n_frames).progress_with(progress) {
-            let n_particles = dim as u64 * self.read_value::<u64>()?;
-            let mut count = 0;
-            let positions = std::iter::from_fn(|| {
-                count += 1;
-
-                if count <= n_particles {
-                    Some(self.read_value::<f32>())
-                } else {
-                    None
-                }
-            }).collect::<Result<Vec<_>, _>>()?;
-
-            frames.push(FluidDataFrame {
-                positions: FluidDataArray(positions),
-            })
-        }
-
-        Ok(FluidData {
+        Ok(FluidMetadata {
             dim,
             fps,
+            num_frames,
             size,
-            frames,
         })
+    }
+
+    pub fn decode_frame(&mut self) -> Result<Option<FluidFrameData>, DecodingError> {
+        if self.current_frame >= self.num_frames {
+            return Ok(None)
+        }
+
+        let path = self.frame_path(self.current_frame);
+        let mut reader = BufReader::new(File::open(path)?);
+
+        let n_particles = self.dim as u64 * Self::read_value::<8, u64, _>(&mut reader)?;
+        let positions = Self::read_values::<f32, _>(&mut reader, n_particles as usize)?;
+
+        self.current_frame += 1;
+
+        Ok(Some(FluidFrameData {
+            positions: FluidDataArray(positions),
+        }))
+    }
+
+    pub fn reset(&mut self) {
+        self.current_frame = 0;
     }
 }
 
-pub struct FluidData {
+pub struct FluidMetadata {
     pub dim: u8,
     pub fps: u32,
-    size: SmallVec<[f32; 4]>,
-    pub frames: Vec<FluidDataFrame>,
+    pub num_frames: u64,
+    pub size: SmallVec<[f32; 4]>,
 }
 
-impl FluidData {
+impl FluidMetadata {
     pub fn size<const D: usize>(&self) -> [f32; D] {
         self.size[..D].try_into().unwrap()
     }
 }
 
-pub struct FluidDataFrame {
+pub struct FluidFrameData {
     pub positions: FluidDataArray,
 }
 

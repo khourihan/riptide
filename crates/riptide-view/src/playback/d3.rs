@@ -1,9 +1,11 @@
+use std::time::Instant;
+
 use bevy::prelude::*;
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
 use crate::particles_3d::{plugin::Particle3dPlugin, Particle3d, Particle3dColor, Particle3dMesh};
 
-use super::{FluidData, FluidDataFrame, Particles, PlaybackPlugin, PlaybackState, SetupState};
+use super::{FluidDataDecoder, Particles, PlaybackPlugin, PlaybackState, SetupState};
 
 pub struct Playback3DPlugin;
 
@@ -40,7 +42,7 @@ fn setup(
 
 fn spawn_particles(
     mut commands: Commands,
-    fluid: Res<FluidData>,
+    mut fluid: ResMut<FluidDataDecoder>,
     mut particles: ResMut<Particles>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut next_state: ResMut<NextState<SetupState>>,
@@ -52,7 +54,15 @@ fn spawn_particles(
         commands.entity(entity).despawn();
     }
 
-    for pos in fluid.0.frames[0].positions.iter::<3>() {
+    let before = Instant::now();
+    let frame = fluid.0.decode_frame().unwrap();
+    info!("decoding took {} seconds", Instant::now().duration_since(before).as_secs_f32());
+
+    let Some(frame) = frame else {
+        return;
+    };
+
+    for pos in frame.positions.iter::<3>() {
         let pos: Vec3 = pos.into();
 
         particles.0.push(commands.spawn((
@@ -62,31 +72,32 @@ fn spawn_particles(
         )).id());
     }
 
+    fluid.0.reset();
+
     info!("spawned {} fluid particles", particles.0.len());
 
     next_state.set(SetupState::Ready);
 }
 
 fn progress_playback(
-    fluid: Res<FluidData>,
-    mut frame: ResMut<FluidDataFrame>,
+    mut fluid: ResMut<FluidDataDecoder>,
     particles: Res<Particles>,
     mut particles_query: Query<(&mut Transform, &mut Particle3dColor), With<Particle3d>>,
     mut next_state: ResMut<NextState<PlaybackState>>,
 ) {
-    if frame.0 >= fluid.0.frames.len() {
+    let before = Instant::now();
+    let Some(frame) = fluid.0.decode_frame().unwrap() else {
         next_state.set(PlaybackState::Paused);
-        frame.0 = 0;
+        fluid.0.reset();
         return;
-    }
+    };
+    info!("decoding took {} seconds", Instant::now().duration_since(before).as_secs_f32());
 
-    for (pos, &entity) in fluid.0.frames[frame.0].positions.iter::<3>().zip(particles.0.iter()) {
+    for (pos, &entity) in frame.positions.iter::<3>().zip(particles.0.iter()) {
         let pos: Vec3 = pos.into();
 
         let (mut transform, _color) = particles_query.get_mut(entity).unwrap();
 
         transform.translation = pos;
     }
-
-    frame.0 += 1
 }

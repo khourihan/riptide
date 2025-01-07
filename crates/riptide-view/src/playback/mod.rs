@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use riptide_io::decode::FluidData as IoFluidData;
+use riptide_io::decode::{FluidDataDecoder as IoFluidDecoder, FluidMetadata as IoFluidMetadata};
 
 pub mod d2;
 pub mod d3;
@@ -12,7 +12,6 @@ impl Plugin for PlaybackPlugin {
             .init_state::<PlaybackState>()
             .init_state::<SetupState>()
             .init_resource::<Particles>()
-            .init_resource::<FluidDataFrame>()
             .add_systems(Update, (
                 change_state_playing.run_if(in_state(PlaybackState::Paused)),
                 change_state_paused.run_if(in_state(PlaybackState::Playing)),
@@ -22,10 +21,10 @@ impl Plugin for PlaybackPlugin {
 
 
 #[derive(Resource)]
-pub struct FluidData(pub IoFluidData);
+pub struct FluidDataDecoder(pub IoFluidDecoder);
 
-#[derive(Resource, Default)]
-struct FluidDataFrame(usize);
+#[derive(Resource)]
+pub struct FluidMetadata(pub IoFluidMetadata);
 
 #[derive(States, Clone, PartialEq, Eq, Hash, Debug, Default)]
 enum PlaybackState {
