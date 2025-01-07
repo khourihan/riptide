@@ -1,12 +1,29 @@
-use bevy::{asset::load_internal_asset, core_pipeline::core_3d::Transparent3d, prelude::*, render::{extract_component::{ExtractComponentPlugin, UniformComponentPlugin}, render_phase::AddRenderCommand, render_resource::SpecializedMeshPipelines, view::{check_visibility, VisibilitySystems::CheckVisibility}, Render, RenderApp, RenderSet}};
+use bevy::{
+    asset::load_internal_asset,
+    core_pipeline::core_3d::Transparent3d,
+    prelude::*,
+    render::{
+        extract_component::{ExtractComponentPlugin, UniformComponentPlugin},
+        render_phase::AddRenderCommand,
+        render_resource::SpecializedMeshPipelines,
+        view::{check_visibility, VisibilitySystems::CheckVisibility},
+        Render, RenderApp, RenderSet,
+    },
+};
 
-use crate::particles::{pipeline::ParticleUniform, Particle, ParticleColor, ParticleMesh, PARTICLE_SHADER_HANDLE};
+use crate::particles_3d::{pipeline::ParticleUniform, Particle3d, Particle3dColor, Particle3dMesh, PARTICLE_SHADER_HANDLE};
 
-use super::{extract::extract_particles, pipeline::{prepare_particle_bind_group, prepare_particle_view_bind_groups, queue_particles, DrawParticle, ParticlePipeline}};
+use super::{
+    extract::extract_particles,
+    pipeline::{
+        prepare_particle_bind_group, prepare_particle_view_bind_groups, queue_particles,
+        DrawParticle, ParticlePipeline,
+    },
+};
 
-pub struct ParticlePlugin;
+pub struct Particle3dPlugin;
 
-impl Plugin for ParticlePlugin {
+impl Plugin for Particle3dPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(
             app,
@@ -16,12 +33,12 @@ impl Plugin for ParticlePlugin {
         );
 
         app.add_plugins(UniformComponentPlugin::<ParticleUniform>::default())
-            .add_plugins(ExtractComponentPlugin::<Particle>::default())
-            .register_type::<ParticleMesh>()
-            .register_type::<ParticleColor>()
+            .add_plugins(ExtractComponentPlugin::<Particle3d>::default())
+            .register_type::<Particle3dMesh>()
+            .register_type::<Particle3dColor>()
             .add_systems(
                 PostUpdate,
-                check_visibility::<With<Particle>>.in_set(CheckVisibility),
+                check_visibility::<With<Particle3d>>.in_set(CheckVisibility),
             );
     }
 

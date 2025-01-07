@@ -2,7 +2,7 @@ use std::{fs::File, path::PathBuf, str::FromStr};
 
 use clap::{Parser, Subcommand};
 use glam::{Vec2, Vec3};
-use riptide_io::encode::FluidDataEncoder;
+use riptide_io::{decode::FluidDataDecoder, encode::FluidDataEncoder};
 use smallvec::SmallVec;
 
 mod run;
@@ -115,7 +115,14 @@ fn main() {
         Commands::View {
             datfile,
         } => {
-            riptide_view::view_3d(datfile);
+            let mut decoder = FluidDataDecoder::new(File::open(datfile).unwrap());
+            let data = decoder.decode().unwrap();
+
+            if data.dim == 2 {
+                riptide_view::view_2d(data);
+            } else if data.dim == 3 {
+                riptide_view::view_3d(data);
+            }
         },
     }
 }

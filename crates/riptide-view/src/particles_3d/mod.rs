@@ -4,33 +4,33 @@ pub mod pipeline;
 pub mod plugin;
 pub mod extract;
 
-pub(self) const PARTICLE_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(0xc3f53d447b7a8000);
+const PARTICLE_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(0xc3f53d447b7a8000);
 
 #[derive(Clone, Component, Default, Reflect)]
 #[reflect(Component)]
-#[require(Particle, ParticleMesh, Transform, Visibility)]
-pub struct ParticleColor(pub Color);
+#[require(Particle3d, Particle3dMesh, Transform, Visibility)]
+pub struct Particle3dColor(pub Color);
 
 #[derive(Clone, Component, Reflect, Default)]
 #[reflect(Component)]
-pub struct ParticleMesh(pub Handle<Mesh>);
+pub struct Particle3dMesh(pub Handle<Mesh>);
 
 #[derive(Clone, Component, Reflect, Debug, Copy)]
 #[reflect(Component)]
-pub struct ParticleDepth(pub bool);
+pub struct Particle3dDepth(pub bool);
 
-impl Default for ParticleDepth {
+impl Default for Particle3dDepth {
     fn default() -> Self {
         Self(true)
     }
 }
 
 #[derive(Default, Clone, Copy, Component, ExtractComponent, Debug, Reflect)]
-#[require(ParticleDepth)]
-pub struct Particle;
+#[require(Particle3dDepth)]
+pub struct Particle3d;
 
 #[derive(Default, Clone, Copy, Component, Debug, Reflect)]
-pub struct ParticleLockAxis {
+pub struct Particle3dLockAxis {
     pub y_axis: bool,
     pub rotation: bool,
 }

@@ -1,8 +1,31 @@
-use bevy::{core_pipeline::core_3d::Transparent3d, ecs::{query::ROQueryItem, system::{lifetimeless::{Read, SRes}, SystemParamItem, SystemState}}, prelude::*, render::{extract_component::{ComponentUniforms, DynamicUniformIndex}, mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo}, render_asset::RenderAssets, render_phase::{DrawFunctions, PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases}, render_resource::{BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingResource, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState, BufferBindingType, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline, SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexState}, renderer::RenderDevice, view::{ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms}}, utils::HashMap};
+use bevy::{
+    core_pipeline::core_3d::Transparent3d,
+    ecs::{query::ROQueryItem, system::{lifetimeless::{Read, SRes}, SystemParamItem, SystemState}},
+    prelude::*,
+    render::{
+        extract_component::{ComponentUniforms, DynamicUniformIndex},
+        mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo},
+        render_asset::RenderAssets,
+        render_phase::{
+            DrawFunctions, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
+            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+        },
+        render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingType,
+            BlendComponent, BlendFactor, BlendOperation, BlendState, BufferBindingType,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState,
+            FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
+            RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline,
+            SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexState,
+        },
+        renderer::RenderDevice,
+        view::{ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
+    },
+};
 
-use crate::particles::PARTICLE_SHADER_HANDLE;
+use crate::particles_3d::PARTICLE_SHADER_HANDLE;
 
-use super::{Particle, ParticleDepth, ParticleLockAxis};
+use super::{Particle3d, Particle3dDepth, Particle3dLockAxis};
 
 #[derive(Clone, Copy, ShaderType, Component)]
 pub struct ParticleUniform {
@@ -17,8 +40,8 @@ pub struct RenderParticleMesh {
 
 #[derive(Clone, Copy, Component, Debug)]
 pub struct RenderParticle {
-    pub depth: ParticleDepth,
-    pub lock_axis: Option<ParticleLockAxis>,
+    pub depth: Particle3dDepth,
+    pub lock_axis: Option<Particle3dLockAxis>,
 }
 
 #[derive(Resource)]
@@ -103,11 +126,10 @@ pub fn prepare_particle_bind_group(
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn queue_particles(
     mut views: Query<(Entity, &ExtractedView, &RenderVisibleEntities, &Msaa)>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    mut pipeline_cache: ResMut<PipelineCache>,
+    pipeline_cache: ResMut<PipelineCache>,
     mut particle_pipelines: ResMut<SpecializedMeshPipelines<ParticlePipeline>>,
     transparent_draw_functions: Res<DrawFunctions<Transparent3d>>,
     particle_pipeline: Res<ParticlePipeline>,
@@ -130,7 +152,7 @@ pub fn queue_particles(
 
         let rangefinder = view.rangefinder3d();
 
-        for visible_entity in visible_entities.iter::<With<Particle>>() {
+        for visible_entity in visible_entities.iter::<With<Particle3d>>() {
             let Ok((uniform, mesh, particle)) = particles.get(visible_entity.0) else {
                 continue;
             };
@@ -158,7 +180,7 @@ pub fn queue_particles(
             }
 
             let pipeline_id = particle_pipelines.specialize(
-                &mut pipeline_cache,
+                &pipeline_cache,
                 &particle_pipeline,
                 key,
                 &render_mesh.layout,

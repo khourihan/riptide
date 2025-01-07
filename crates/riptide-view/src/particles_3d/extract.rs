@@ -1,6 +1,9 @@
 use bevy::{prelude::*, render::{sync_world::RenderEntity, Extract}};
 
-use super::{pipeline::{ParticleUniform, RenderParticle, RenderParticleMesh}, ParticleColor, ParticleDepth, ParticleLockAxis, ParticleMesh};
+use super::{
+    pipeline::{ParticleUniform, RenderParticle, RenderParticleMesh},
+    Particle3dColor, Particle3dDepth, Particle3dLockAxis, Particle3dMesh,
+};
 
 pub fn extract_particles(
     mut commands: Commands,
@@ -11,10 +14,10 @@ pub fn extract_particles(
             &ViewVisibility,
             &GlobalTransform,
             &Transform,
-            &ParticleMesh,
-            &ParticleColor,
-            &ParticleDepth,
-            Option<&ParticleLockAxis>,
+            &Particle3dMesh,
+            &Particle3dColor,
+            &Particle3dDepth,
+            Option<&Particle3dLockAxis>,
         )>
     >,
 ) {
@@ -58,8 +61,8 @@ pub fn extract_particles(
 fn calculate_particle_uniform(
     global_transform: &GlobalTransform,
     transform: &Transform,
-    lock_axis: Option<&ParticleLockAxis>,
-    color: &ParticleColor,
+    lock_axis: Option<&Particle3dLockAxis>,
+    color: &Particle3dColor,
 ) -> ParticleUniform {
     let transform = if lock_axis.is_some() {
         global_transform.compute_matrix()
