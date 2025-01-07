@@ -3,7 +3,7 @@ use bevy::{
     core_pipeline::core_3d::Transparent3d,
     prelude::*,
     render::{
-        extract_component::{ExtractComponentPlugin, UniformComponentPlugin},
+        extract_component::ExtractComponentPlugin,
         render_phase::AddRenderCommand,
         render_resource::SpecializedMeshPipelines,
         view::{check_visibility, VisibilitySystems::CheckVisibility},
@@ -11,13 +11,12 @@ use bevy::{
     },
 };
 
-use crate::particles_3d::{pipeline::ParticleUniform, Particle3d, Particle3dColor, Particle3dMesh, PARTICLE_SHADER_HANDLE};
+use crate::particles_3d::{InstanceParticleData, Particle3d, PARTICLE_SHADER_HANDLE};
 
 use super::{
     extract::extract_particles,
     pipeline::{
-        prepare_particle_bind_group, prepare_particle_view_bind_groups, queue_particles,
-        DrawParticle, ParticlePipeline,
+        prepare_instance_buffers, prepare_particle_view_bind_groups, queue_particles, DrawParticle, ParticlePipeline
     },
 };
 
@@ -32,10 +31,8 @@ impl Plugin for Particle3dPlugin {
             Shader::from_wgsl
         );
 
-        app.add_plugins(UniformComponentPlugin::<ParticleUniform>::default())
-            .add_plugins(ExtractComponentPlugin::<Particle3d>::default())
-            .register_type::<Particle3dMesh>()
-            .register_type::<Particle3dColor>()
+        app.add_plugins(ExtractComponentPlugin::<Particle3d>::default())
+            .add_plugins(ExtractComponentPlugin::<InstanceParticleData>::default())
             .add_systems(
                 PostUpdate,
                 check_visibility::<With<Particle3d>>.in_set(CheckVisibility),
@@ -51,14 +48,14 @@ impl Plugin for Particle3dPlugin {
                 ExtractSchedule,
                 extract_particles,
             )
-            .add_systems(Render, queue_particles.in_set(RenderSet::Queue))
-            .add_systems(
-                Render,
-                prepare_particle_bind_group.in_set(RenderSet::PrepareBindGroups),
-            )
+            .add_systems(Render, queue_particles.in_set(RenderSet::QueueMeshes))
             .add_systems(
                 Render,
                 prepare_particle_view_bind_groups.in_set(RenderSet::PrepareBindGroups),
+            )
+            .add_systems(
+                Render,
+                prepare_instance_buffers.in_set(RenderSet::PrepareResources)
             );
     }
 }

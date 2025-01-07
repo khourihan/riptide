@@ -1,51 +1,24 @@
+use std::mem;
+
 use bevy::{
-    core_pipeline::core_3d::Transparent3d,
-    ecs::{query::ROQueryItem, system::{lifetimeless::{Read, SRes}, SystemParamItem, SystemState}},
-    prelude::*,
-    render::{
-        extract_component::{ComponentUniforms, DynamicUniformIndex},
-        mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo},
-        render_asset::RenderAssets,
-        render_phase::{
-            DrawFunctions, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
-            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
-        },
-        render_resource::{
-            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingType,
-            BlendComponent, BlendFactor, BlendOperation, BlendState, BufferBindingType,
-            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, FragmentState,
-            FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState,
-            RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline,
-            SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexState,
-        },
-        renderer::RenderDevice,
-        view::{ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms},
-    },
+    core_pipeline::core_3d::{Transparent3d, CORE_3D_DEPTH_FORMAT}, ecs::{query::ROQueryItem, system::{lifetimeless::{Read, SRes}, SystemParamItem, SystemState}}, pbr::RenderMeshInstances, prelude::*, render::{
+        mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo, VertexBufferLayout}, render_asset::RenderAssets, render_phase::{
+            DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases
+        }, render_resource::{
+            BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingType, BufferBindingType, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Face, FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline, SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexAttribute, VertexFormat, VertexState, VertexStepMode
+        }, renderer::RenderDevice, sync_world::MainEntity, view::{ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms}
+    }
 };
 
-use crate::particles_3d::PARTICLE_SHADER_HANDLE;
+use crate::particles_3d::{InstanceData, PARTICLE_SHADER_HANDLE};
 
-use super::{Particle3d, Particle3dDepth, Particle3dLockAxis};
-
-#[derive(Clone, Copy, ShaderType, Component)]
-pub struct ParticleUniform {
-    pub(crate) transform: Mat4,
-    pub(crate) color: LinearRgba,
-}
-
-#[derive(Clone, Copy, Component, Debug)]
-pub struct RenderParticleMesh {
-    pub id: AssetId<Mesh>,
-}
+use super::{InstanceBuffer, InstanceParticleData, Particle3dDepth, Particle3dLockAxis};
 
 #[derive(Clone, Copy, Component, Debug)]
 pub struct RenderParticle {
     pub depth: Particle3dDepth,
     pub lock_axis: Option<Particle3dLockAxis>,
 }
-
-#[derive(Resource)]
-pub struct ParticleBindGroup(BindGroup);
 
 #[derive(Component)]
 pub struct ParticleViewBindGroup(BindGroup);
@@ -104,60 +77,58 @@ pub fn prepare_particle_view_bind_groups(
     }
 }
 
-pub fn prepare_particle_bind_group(
+pub fn prepare_instance_buffers(
     mut commands: Commands,
+    query: Query<(Entity, &InstanceParticleData)>,
     render_device: Res<RenderDevice>,
-    particle_pipeline: Res<ParticlePipeline>,
-    particle_uniforms_buffer: Res<ComponentUniforms<ParticleUniform>>,
 ) {
-    let Some(binding) = particle_uniforms_buffer.uniforms().binding() else {
-        return;
-    };
+    for (entity, instance_data) in &query {
+        let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+            label: Some("instance_data_buffer"),
+            contents: bytemuck::cast_slice(instance_data.as_slice()),
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+        });
 
-    commands.insert_resource(ParticleBindGroup(
-        render_device.create_bind_group(
-            Some("particle_bind_group"),
-            &particle_pipeline.particle_layout,
-            &[BindGroupEntry {
-                binding: 0,
-                resource: binding,
-            }],
-        ),
-    ));
+        commands.entity(entity).insert(InstanceBuffer {
+            buffer,
+            length: instance_data.len(),
+        });
+    }
 }
 
 pub fn queue_particles(
-    mut views: Query<(Entity, &ExtractedView, &RenderVisibleEntities, &Msaa)>,
+    mut views: Query<(Entity, &ExtractedView, &Msaa)>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     pipeline_cache: ResMut<PipelineCache>,
     mut particle_pipelines: ResMut<SpecializedMeshPipelines<ParticlePipeline>>,
     transparent_draw_functions: Res<DrawFunctions<Transparent3d>>,
     particle_pipeline: Res<ParticlePipeline>,
+    render_mesh_instances: Res<RenderMeshInstances>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
-    particles: Query<(
-        &ParticleUniform,
-        &RenderParticleMesh,
-        &RenderParticle,
-    )>
+    particle_meshes: Query<(Entity, &MainEntity), With<InstanceParticleData>>,
+    particles: Query<&RenderParticle>
 ) {
-    for (view_entity, view, visible_entities, msaa) in &mut views {
+    let draw_transparent_particle = transparent_draw_functions
+        .read()
+        .id::<DrawParticle>();
+
+    for (view_entity, view, msaa) in &mut views {
         let Some(transparent_phase) = transparent_render_phases.get_mut(&view_entity) else {
             continue;
         };
 
-        let draw_transparent_particle = transparent_draw_functions
-            .read()
-            .get_id::<DrawParticle>()
-            .unwrap();
-
         let rangefinder = view.rangefinder3d();
 
-        for visible_entity in visible_entities.iter::<With<Particle3d>>() {
-            let Ok((uniform, mesh, particle)) = particles.get(visible_entity.0) else {
+        for (entity, main_entity) in &particle_meshes {
+            let Ok(particle) = particles.get(entity) else {
                 continue;
             };
 
-            let Some(render_mesh) = render_meshes.get(mesh.id) else {
+            let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity) else {
+                continue;
+            };
+
+            let Some(mesh) = render_meshes.get(mesh_instance.mesh_asset_id) else {
                 continue;
             };
 
@@ -183,7 +154,7 @@ pub fn queue_particles(
                 &pipeline_cache,
                 &particle_pipeline,
                 key,
-                &render_mesh.layout,
+                &mesh.layout,
             );
 
             let pipeline_id = match pipeline_id {
@@ -194,15 +165,13 @@ pub fn queue_particles(
                 },
             };
 
-            let distance = rangefinder.distance(&uniform.transform);
-
             transparent_phase.add(Transparent3d {
+                entity: (entity, *main_entity),
                 pipeline: pipeline_id,
-                entity: *visible_entity,
                 draw_function: draw_transparent_particle,
+                distance: rangefinder.distance_translation(&mesh_instance.translation),
                 batch_range: 0..1,
                 extra_index: PhaseItemExtraIndex::NONE,
-                distance,
             });
         }
     }
@@ -211,7 +180,6 @@ pub fn queue_particles(
 #[derive(Resource, Clone)]
 pub struct ParticlePipeline {
     view_layout: BindGroupLayout,
-    particle_layout: BindGroupLayout,
 }
 
 impl FromWorld for ParticlePipeline {
@@ -234,23 +202,8 @@ impl FromWorld for ParticlePipeline {
             }],
         );
 
-        let particle_layout = render_device.create_bind_group_layout(
-            "particle_layout",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(ParticleUniform::min_size()),
-                },
-                count: None,
-            }],
-        );
-
         Self {
             view_layout,
-            particle_layout,
         }
     }
 }
@@ -263,7 +216,6 @@ impl SpecializedMeshPipeline for ParticlePipeline {
         key: Self::Key,
         layout: &MeshVertexBufferLayoutRef,
     ) -> Result<RenderPipelineDescriptor, SpecializedMeshPipelineError> {
-        const DEF_VERTEX_COLOR: &str = "VERTEX_COLOR";
         const DEF_LOCK_Y: &str = "LOCK_Y";
         const DEF_LOCK_ROTATION: &str = "LOCK_ROTATION";
 
@@ -275,15 +227,27 @@ impl SpecializedMeshPipeline for ParticlePipeline {
 
         let layout = layout.0.as_ref();
 
-        if layout.contains(Mesh::ATTRIBUTE_COLOR) {
-            shader_defs.push(DEF_VERTEX_COLOR.into());
-            attributes.push(Mesh::ATTRIBUTE_COLOR.at_shader_location(2));
-        }
-
         let vertex_buffer_layout = layout.get_layout(&attributes)?;
 
+        let instance_buffer_layout = VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceData>() as u64,
+            step_mode: VertexStepMode::Instance,
+            attributes: vec![
+                VertexAttribute {
+                    format: VertexFormat::Float32x4,
+                    offset: 0,
+                    shader_location: 2,
+                },
+                VertexAttribute {
+                    format: VertexFormat::Float32x4,
+                    offset: VertexFormat::Float32x4.size(),
+                    shader_location: 3,
+                },
+            ],
+        };
+
         let depth_compare = if key.contains(ParticlePipelineKey::DEPTH) {
-            CompareFunction::Greater
+            CompareFunction::GreaterEqual
         } else {
             CompareFunction::Always
         };
@@ -300,12 +264,11 @@ impl SpecializedMeshPipeline for ParticlePipeline {
             label: Some("particle_pipeline".into()),
             layout: vec![
                 self.view_layout.clone(),
-                self.particle_layout.clone(),
             ],
             vertex: VertexState {
                 shader: PARTICLE_SHADER_HANDLE,
                 entry_point: "vertex".into(),
-                buffers: vec![vertex_buffer_layout],
+                buffers: vec![vertex_buffer_layout, instance_buffer_layout],
                 shader_defs: shader_defs.clone(),
             },
             fragment: Some(FragmentState {
@@ -318,18 +281,7 @@ impl SpecializedMeshPipeline for ParticlePipeline {
                     } else {
                         TextureFormat::bevy_default()
                     },
-                    blend: Some(BlendState {
-                        color: BlendComponent {
-                            src_factor: BlendFactor::SrcAlpha,
-                            dst_factor: BlendFactor::OneMinusSrcAlpha,
-                            operation: BlendOperation::Add,
-                        },
-                        alpha: BlendComponent {
-                            src_factor: BlendFactor::One,
-                            dst_factor: BlendFactor::One,
-                            operation: BlendOperation::Add,
-                        },
-                    }),
+                    blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
             }),
@@ -337,14 +289,14 @@ impl SpecializedMeshPipeline for ParticlePipeline {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: FrontFace::Ccw,
-                cull_mode: None,
+                cull_mode: Some(Face::Back),
                 polygon_mode: PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(DepthStencilState {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: false,
+                format: CORE_3D_DEPTH_FORMAT,
+                depth_write_enabled: true,
                 depth_compare,
                 stencil: default(),
                 bias: default(),
@@ -378,65 +330,51 @@ impl<const I: usize> RenderCommand<Transparent3d> for SetParticleViewBindGroup<I
     }
 }
 
-pub struct SetParticleBindGroup<const I: usize>;
-impl<const I: usize> RenderCommand<Transparent3d> for SetParticleBindGroup<I> {
-    type Param = SRes<ParticleBindGroup>;
-    type ViewQuery = ();
-    type ItemQuery = Read<DynamicUniformIndex<ParticleUniform>>;
-
-    fn render<'w>(
-        _item: &Transparent3d,
-        _view: ROQueryItem<'w, Self::ViewQuery>,
-        particle_index: Option<ROQueryItem<'w, Self::ItemQuery>>,
-        particle_bind_group: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let particle_bind_group = particle_bind_group.into_inner();
-
-        let Some(particle_index) = particle_index else {
-            return RenderCommandResult::Skip;
-        };
-
-        pass.set_bind_group(I, &particle_bind_group.0, &[particle_index.index()]);
-
-        RenderCommandResult::Success
-    }
-}
-
 pub struct DrawParticleMesh;
-impl RenderCommand<Transparent3d> for DrawParticleMesh {
-    type Param = (SRes<RenderAssets<RenderMesh>>, SRes<MeshAllocator>);
+impl<P: PhaseItem> RenderCommand<P> for DrawParticleMesh {
+    type Param = (
+        SRes<RenderAssets<RenderMesh>>,
+        SRes<RenderMeshInstances>,
+        SRes<MeshAllocator>,
+    );
     type ViewQuery = ();
-    type ItemQuery = Read<RenderParticleMesh>;
+    type ItemQuery = Read<InstanceBuffer>;
 
     fn render<'w>(
-        _item: &Transparent3d,
+        item: &P,
         _view: ROQueryItem<'w, Self::ViewQuery>,
-        mesh: Option<ROQueryItem<'w, Self::ItemQuery>>,
-        (meshes, mesh_allocator): SystemParamItem<'w, '_, Self::Param>,
+        instance_buffer: Option<ROQueryItem<'w, Self::ItemQuery>>,
+        (meshes, mesh_instances, mesh_allocator): SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(mesh) = mesh else {
+        let mesh_instances = mesh_instances.into_inner();
+        let Some(mesh_instance) = mesh_instances.render_mesh_queue_data(item.main_entity()) else {
             return RenderCommandResult::Skip;
         };
 
-        let Some(render_mesh) = meshes.into_inner().get(mesh.id) else {
+        let meshes = meshes.into_inner();
+        let Some(render_mesh) = meshes.get(mesh_instance.mesh_asset_id) else {
+            return RenderCommandResult::Skip;
+        };
+
+        let Some(instance_buffer) = instance_buffer else {
             return RenderCommandResult::Skip;
         };
 
         let mesh_allocator = mesh_allocator.into_inner();
-        let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&mesh.id) else {
+        let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&mesh_instance.mesh_asset_id) else {
             return RenderCommandResult::Skip;
         };
 
         pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
+        pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
 
         match &render_mesh.buffer_info {
             RenderMeshBufferInfo::Indexed {
-                count,
                 index_format,
+                count,
             } => {
-                let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&mesh.id) else {
+                let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&mesh_instance.mesh_asset_id) else {
                     return RenderCommandResult::Skip;
                 };
 
@@ -444,14 +382,13 @@ impl RenderCommand<Transparent3d> for DrawParticleMesh {
                 pass.draw_indexed(
                     index_buffer_slice.range.start..(index_buffer_slice.range.start + count),
                     vertex_buffer_slice.range.start as i32,
-                    0..1,
+                    0..instance_buffer.length as u32,
                 );
             },
             RenderMeshBufferInfo::NonIndexed => {
                 pass.draw(
-                    vertex_buffer_slice.range.start
-                        ..(vertex_buffer_slice.range.start + render_mesh.vertex_count),
-                    0..1,
+                    vertex_buffer_slice.range,
+                    0..instance_buffer.length as u32,
                 );
             },
         }
@@ -463,6 +400,5 @@ impl RenderCommand<Transparent3d> for DrawParticleMesh {
 pub type DrawParticle = (
     SetItemPipeline,
     SetParticleViewBindGroup<0>,
-    SetParticleBindGroup<1>,
     DrawParticleMesh,
 );

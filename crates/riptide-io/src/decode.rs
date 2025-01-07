@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufRead, BufReader, Read}, mem::{self, MaybeUninit}, path::PathBuf};
+use std::{fs::File, io::{BufRead, BufReader}, mem::{self, MaybeUninit}, path::PathBuf};
 
 use smallvec::SmallVec;
 use thiserror::Error;

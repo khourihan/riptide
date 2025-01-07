@@ -11,7 +11,6 @@ impl Plugin for PlaybackPlugin {
         app
             .init_state::<PlaybackState>()
             .init_state::<SetupState>()
-            .init_resource::<Particles>()
             .add_systems(Update, (
                 change_state_playing.run_if(in_state(PlaybackState::Paused)),
                 change_state_paused.run_if(in_state(PlaybackState::Playing)),
@@ -39,9 +38,6 @@ enum SetupState {
     #[default]
     NotReady,
 }
-
-#[derive(Resource, Default)]
-struct Particles(Vec<Entity>);
 
 fn change_state_playing(
     keys: Res<ButtonInput<KeyCode>>,

@@ -9,38 +9,27 @@ struct View {
     viewport: vec4<f32>,
 };
 
-struct Particle {
-    model: mat4x4<f32>,
-    color: vec4<f32>,
-}
-
 @group(0) @binding(0)
 var<uniform> view: View;
-
-@group(1) @binding(0)
-var<uniform> particle: Particle;
 
 struct Vertex {
     @location(0) position: vec3<f32>,
     @location(1) uv: vec2<f32>,
-#ifdef VERTEX_COLOR
-    @location(2) color: vec4<f32>,
-#endif
+    @location(2) i_pos_scale: vec4<f32>,
+    @location(3) i_color: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-#ifdef VERTEX_COLOR
     @location(1) color: vec4<f32>,
-#endif
 };
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
 #ifdef LOCK_ROTATION
     let vertex_position = vec4<f32>(-vertex.position.x, vertex.position.y, vertex.position.z, 1.0);
-    let position = view.view_proj * particle.model * vertex_position;
+    let clip_position = view.view_proj * (vertex_position * vertex.i_pos_scale.w + vertex.i_pos_scale.xyz);
 #else
     let camera_right = normalize(vec3<f32>(view.view_proj.x.x, view.view_proj.y.x, view.view_proj.z.x));
 #ifdef LOCK_Y
@@ -50,25 +39,21 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 #endif // LOCK_Y
 
     let world_space = camera_right * vertex.position.x + camera_up * vertex.position.y;
-    let position = view.view_proj * particle.model * vec4<f32>(world_space, 1.0);
+    let clip_position = view.view_proj * vec4<f32>(world_space * vertex.i_pos_scale.w + vertex.i_pos_scale.xyz, 1.0);
 #endif // LOCK_ROTATION
 
     var out: VertexOutput;
-    out.position = position;
+    out.position = clip_position;
     out.uv = vertex.uv;
 
-#ifdef VERTEX_COLOR
-    out.color = vertex.color;
-#endif
+    out.color = vertex.i_color;
 
     return out;
 }
 
 struct Fragment {
     @location(0) uv: vec2<f32>,
-#ifdef VERTEX_COLOR
     @location(1) color: vec4<f32>,
-#endif
 };
 
 @fragment
@@ -80,11 +65,5 @@ fn fragment(fragment: Fragment) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let color = particle.color;
-
-#ifdef VERTEX_COLOR
-    return color * fragment.color;
-#else
-    return color;
-#endif
+    return fragment.color;
 }
