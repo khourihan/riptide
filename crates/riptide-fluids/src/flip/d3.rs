@@ -22,11 +22,11 @@ pub struct FlipFluid3D {
     particle_resolution: UVec3,
 
     /// Grid velocities.
-    uvs: Array3<Vec3>,
+    uvws: Array3<Vec3>,
     /// Grid velocity deltas.
-    dudvs: Array3<Vec3>,
+    dudvdws: Array3<Vec3>,
     /// Previous grid velocities.
-    prev_uvs: Array3<Vec3>,
+    prev_uvws: Array3<Vec3>,
     /// Pressure of the grid.
     pressure: Array3<f32>,
     /// Solid grid cells. `0.0` for completely solid and `1.0` for not solid.
@@ -35,6 +35,9 @@ pub struct FlipFluid3D {
     cell_type: Array3<CellType>,
     /// Grid densities.
     densities: Array3<f32>,
+
+    cell_particle_count: Array1<usize>,
+    first_cell_particle: Array1<usize>,
 
     /// Particle positions.
     pub positions: Array1<Vec3>,
@@ -71,6 +74,10 @@ impl FlipFluid3D {
         let particle_spacing = 2.2 * particle_radius;
         let particle_resolution = (dimensions.as_vec3() / particle_spacing).floor().as_uvec3() + 1;
 
+        let cell_count = (particle_resolution.x * particle_resolution.y * particle_resolution.z) as usize;
+        let cell_particle_count = Array1::from_elem(cell_count, 0);
+        let first_cell_particle = Array1::from_elem(cell_count + 1, 0);
+
         let cell_particle_indices = Array1::from_vec(vec![]);
 
         Self {
@@ -82,13 +89,15 @@ impl FlipFluid3D {
             particle_spacing,
             n_particles: 0,
             particle_resolution,
-            uvs,
-            dudvs,
-            prev_uvs,
+            uvws: uvs,
+            dudvdws: dudvs,
+            prev_uvws: prev_uvs,
             pressure,
             solid,
             cell_type,
             densities,
+            cell_particle_count,
+            first_cell_particle,
             positions,
             velocities,
             roughness,
@@ -112,9 +121,9 @@ impl FlipFluid3D {
                         }
                     }
 
-                    let _ = self.uvs.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
-                    let _ = self.dudvs.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
-                    let _ = self.prev_uvs.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
+                    let _ = self.uvws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
+                    let _ = self.dudvdws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
+                    let _ = self.prev_uvws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
                     let _ = self.pressure.append(Axis(dim), Array3::from_elem(s, 0.0).view());
                     let _ = self.solid.append(Axis(dim), Array3::from_elem(s, 1.0).view());
                     let _ = self.cell_type.append(Axis(dim), Array3::from_elem(s, CellType::Fluid).view());
@@ -122,10 +131,10 @@ impl FlipFluid3D {
                 },
                 std::cmp::Ordering::Less => {
                     for _ in 0..(self.size[dim] - size[dim]) {
-                        let i = self.uvs.len_of(Axis(dim)) - 1;
-                        self.uvs.remove_index(Axis(dim), i);
-                        self.dudvs.remove_index(Axis(dim), i);
-                        self.prev_uvs.remove_index(Axis(dim), i);
+                        let i = self.uvws.len_of(Axis(dim)) - 1;
+                        self.uvws.remove_index(Axis(dim), i);
+                        self.dudvdws.remove_index(Axis(dim), i);
+                        self.prev_uvws.remove_index(Axis(dim), i);
                         self.pressure.remove_index(Axis(dim), i);
                         self.solid.remove_index(Axis(dim), i);
                         self.cell_type.remove_index(Axis(dim), i);
@@ -182,32 +191,31 @@ impl FlipFluid3D {
     fn push_particles_apart(&mut self, num_iters: usize) {
         const ROUGHNESS_DIFFUSION: f32 = 0.001;
 
-        let cell_count = (self.particle_resolution.x * self.particle_resolution.y * self.particle_resolution.z) as usize;
-        let mut cell_particle_count = Array1::from_elem(cell_count, 0);
-        let mut first_cell_particle = Array1::from_elem(cell_count + 1, 0);
+        self.cell_particle_count.fill(0);
+        self.first_cell_particle.fill(0);
 
         for p in self.positions.iter() {
             let pi = (p / self.particle_spacing).floor().as_uvec3()
                 .clamp(UVec3::ZERO, self.particle_resolution - 1);
             let cell_nr = (self.particle_resolution.x * (self.particle_resolution.y * pi.z + pi.y) + pi.x) as usize;
-            cell_particle_count[cell_nr] += 1;
+            self.cell_particle_count[cell_nr] += 1;
         }
 
         let mut first = 0;
 
-        for (count, first_cell) in cell_particle_count.iter().zip(first_cell_particle.iter_mut()) {
+        for (count, first_cell) in self.cell_particle_count.iter().zip(self.first_cell_particle.iter_mut()) {
             first += count;
             *first_cell = first;
         }
 
-        first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
+        self.first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
 
         for (i, p) in self.positions.iter().enumerate() {
             let pi = (p / self.particle_spacing).floor().as_uvec3()
                 .clamp(UVec3::ZERO, self.particle_resolution - 1);
             let cell_nr = (self.particle_resolution.x * (self.particle_resolution.y * pi.z + pi.y) + pi.x) as usize;
-            first_cell_particle[cell_nr] -= 1;
-            self.cell_particle_indices[first_cell_particle[cell_nr]] = i;
+            self.first_cell_particle[cell_nr] -= 1;
+            self.cell_particle_indices[self.first_cell_particle[cell_nr]] = i;
         }
 
         let min_dist = 2.0 * self.particle_radius;
@@ -225,8 +233,8 @@ impl FlipFluid3D {
                     for yi in p0.y..=p1.y {
                         for zi in p0.z..=p1.z {
                             let cell_nr = (self.particle_resolution.x * (self.particle_resolution.y * zi + yi) + xi) as usize;
-                            let first = first_cell_particle[cell_nr];
-                            let last = first_cell_particle[cell_nr + 1];
+                            let first = self.first_cell_particle[cell_nr];
+                            let last = self.first_cell_particle[cell_nr + 1];
 
                             for j in first..last {
                                 let id = self.cell_particle_indices[j];
@@ -373,9 +381,9 @@ impl FlipFluid3D {
         let h1 = h.recip();
         let h2 = 0.5 * h;
 
-        self.prev_uvs.assign(&self.uvs);
-        self.dudvs.fill(Vec3::ZERO);
-        self.uvs.fill(Vec3::ZERO);
+        self.prev_uvws.assign(&self.uvws);
+        self.dudvdws.fill(Vec3::ZERO);
+        self.uvws.fill(Vec3::ZERO);
 
         azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
             *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
@@ -424,25 +432,25 @@ impl FlipFluid3D {
                 let d7 = t.x * t.y * t.z;
 
                 let v = self.velocities[i][dim];
-                self.uvs[i0][dim] += v * d0;
-                self.uvs[i1][dim] += v * d1;
-                self.uvs[i2][dim] += v * d2;
-                self.uvs[i3][dim] += v * d3;
-                self.uvs[i4][dim] += v * d4;
-                self.uvs[i5][dim] += v * d5;
-                self.uvs[i6][dim] += v * d6;
-                self.uvs[i7][dim] += v * d7;
-                self.dudvs[i0][dim] += d0;
-                self.dudvs[i1][dim] += d1;
-                self.dudvs[i2][dim] += d2;
-                self.dudvs[i3][dim] += d3;
-                self.dudvs[i4][dim] += d4;
-                self.dudvs[i5][dim] += d5;
-                self.dudvs[i6][dim] += d6;
-                self.dudvs[i7][dim] += d7;
+                self.uvws[i0][dim] += v * d0;
+                self.uvws[i1][dim] += v * d1;
+                self.uvws[i2][dim] += v * d2;
+                self.uvws[i3][dim] += v * d3;
+                self.uvws[i4][dim] += v * d4;
+                self.uvws[i5][dim] += v * d5;
+                self.uvws[i6][dim] += v * d6;
+                self.uvws[i7][dim] += v * d7;
+                self.dudvdws[i0][dim] += d0;
+                self.dudvdws[i1][dim] += d1;
+                self.dudvdws[i2][dim] += d2;
+                self.dudvdws[i3][dim] += d3;
+                self.dudvdws[i4][dim] += d4;
+                self.dudvdws[i5][dim] += d5;
+                self.dudvdws[i6][dim] += d6;
+                self.dudvdws[i7][dim] += d7;
             }
 
-            azip!((uv in &mut self.uvs, &dudv in &self.dudvs) {
+            azip!((uv in &mut self.uvws, &dudv in &self.dudvdws) {
                 if dudv[dim] > 0.0 {
                     uv[dim] /= dudv[dim];
                 }
@@ -454,15 +462,15 @@ impl FlipFluid3D {
                         let solid = self.cell_type[(i, j, k)] == CellType::Solid;
 
                         if solid || (i > 0 && self.cell_type[(i - 1, j, k)] == CellType::Solid) {
-                            self.uvs[(i, j, k)].x = self.prev_uvs[(i, j, k)].x;
+                            self.uvws[(i, j, k)].x = self.prev_uvws[(i, j, k)].x;
                         }
 
                         if solid || (j > 0 && self.cell_type[(i, j - 1, k)] == CellType::Solid) {
-                            self.uvs[(i, j, k)].y = self.prev_uvs[(i, j, k)].y;
+                            self.uvws[(i, j, k)].y = self.prev_uvws[(i, j, k)].y;
                         }
 
                         if solid || (k > 0 && self.cell_type[(i, j, k - 1)] == CellType::Solid) {
-                            self.uvs[(i, j, k)].z = self.prev_uvs[(i, j, k)].z;
+                            self.uvws[(i, j, k)].z = self.prev_uvws[(i, j, k)].z;
                         }
                     }
                 }
@@ -531,18 +539,18 @@ impl FlipFluid3D {
                 let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3 + v4 * d4 + v5 * d5 + v6 * d6 + v7 * d7;
 
                 if d > 0.0 {
-                    let picv = (v0 * d0 * self.uvs[i0][dim] + v1 * d1 * self.uvs[i1][dim] 
-                        + v2 * d2 * self.uvs[i2][dim] + v3 * d3 * self.uvs[i3][dim]
-                        + v4 * d4 * self.uvs[i4][dim] + v5 * d5 * self.uvs[i5][dim]
-                        + v6 * d6 * self.uvs[i6][dim] + v7 * d7 * self.uvs[i7][dim]) / d;
-                    let corr = (v0 * d0 * (self.uvs[i0][dim] - self.prev_uvs[i0][dim]) 
-                        + v1 * d1 * (self.uvs[i1][dim] - self.prev_uvs[i1][dim])
-                        + v2 * d2 * (self.uvs[i2][dim] - self.prev_uvs[i2][dim])
-                        + v3 * d3 * (self.uvs[i3][dim] - self.prev_uvs[i3][dim])
-                        + v4 * d4 * (self.uvs[i4][dim] - self.prev_uvs[i4][dim])
-                        + v5 * d5 * (self.uvs[i5][dim] - self.prev_uvs[i5][dim])
-                        + v6 * d6 * (self.uvs[i6][dim] - self.prev_uvs[i6][dim])
-                        + v7 * d7 * (self.uvs[i7][dim] - self.prev_uvs[i7][dim])) / d;
+                    let picv = (v0 * d0 * self.uvws[i0][dim] + v1 * d1 * self.uvws[i1][dim] 
+                        + v2 * d2 * self.uvws[i2][dim] + v3 * d3 * self.uvws[i3][dim]
+                        + v4 * d4 * self.uvws[i4][dim] + v5 * d5 * self.uvws[i5][dim]
+                        + v6 * d6 * self.uvws[i6][dim] + v7 * d7 * self.uvws[i7][dim]) / d;
+                    let corr = (v0 * d0 * (self.uvws[i0][dim] - self.prev_uvws[i0][dim]) 
+                        + v1 * d1 * (self.uvws[i1][dim] - self.prev_uvws[i1][dim])
+                        + v2 * d2 * (self.uvws[i2][dim] - self.prev_uvws[i2][dim])
+                        + v3 * d3 * (self.uvws[i3][dim] - self.prev_uvws[i3][dim])
+                        + v4 * d4 * (self.uvws[i4][dim] - self.prev_uvws[i4][dim])
+                        + v5 * d5 * (self.uvws[i5][dim] - self.prev_uvws[i5][dim])
+                        + v6 * d6 * (self.uvws[i6][dim] - self.prev_uvws[i6][dim])
+                        + v7 * d7 * (self.uvws[i7][dim] - self.prev_uvws[i7][dim])) / d;
                     let flipv = v + corr;
 
                     self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
@@ -553,7 +561,7 @@ impl FlipFluid3D {
 
     fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
         self.pressure.fill(0.0);
-        self.prev_uvs.assign(&self.uvs);
+        self.prev_uvws.assign(&self.uvws);
 
         let cp = self.density * self.spacing / dt;
 
@@ -585,9 +593,9 @@ impl FlipFluid3D {
                             continue;
                         }
 
-                        let mut div = self.uvs[right].x - self.uvs[center].x
-                            + self.uvs[top].y - self.uvs[center].y
-                            + self.uvs[front].z - self.uvs[center].z;
+                        let mut div = self.uvws[right].x - self.uvws[center].x
+                            + self.uvws[top].y - self.uvws[center].y
+                            + self.uvws[front].z - self.uvws[center].z;
 
                         if self.rest_density > 0.0 && compensate_drift {
                             let stiffness = 1.0;
@@ -601,12 +609,12 @@ impl FlipFluid3D {
                         p *= over_relaxation;
                         self.pressure[center] += cp * p;
 
-                        self.uvs[center].x -= sx0 * p;
-                        self.uvs[right].x += sx1 * p;
-                        self.uvs[center].y -= sy0 * p;
-                        self.uvs[top].y += sy1 * p;
-                        self.uvs[center].z -= sz0 * p;
-                        self.uvs[front].z += sz1 * p;
+                        self.uvws[center].x -= sx0 * p;
+                        self.uvws[right].x += sx1 * p;
+                        self.uvws[center].y -= sy0 * p;
+                        self.uvws[top].y += sy1 * p;
+                        self.uvws[center].z -= sz0 * p;
+                        self.uvws[front].z += sz1 * p;
                     }
                 }
             }
@@ -646,10 +654,10 @@ impl FlipFluid3D {
                         // TODO: add velocity of obstacle to this.
                         let v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
                         self.solid[(i, j, k)] = 0.0;
-                        self.uvs[(i, j, k)] = v;
-                        self.uvs[(i + 1, j, k)].x = v.x;
-                        self.uvs[(i, j + 1, k)].y = v.y;
-                        self.uvs[(i, j, k + 1)].z = v.z;
+                        self.uvws[(i, j, k)] = v;
+                        self.uvws[(i + 1, j, k)].x = v.x;
+                        self.uvws[(i, j + 1, k)].y = v.y;
+                        self.uvws[(i, j, k + 1)].z = v.z;
                     }
                 }
             }

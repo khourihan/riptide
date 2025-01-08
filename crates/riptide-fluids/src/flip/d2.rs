@@ -36,6 +36,9 @@ pub struct FlipFluid2D {
     /// Grid densities.
     densities: Array2<f32>,
 
+    cell_particle_count: Array1<usize>,
+    first_cell_particle: Array1<usize>,
+
     /// Particle positions.
     pub positions: Array1<Vec2>,
     /// Particle velocities.
@@ -74,6 +77,10 @@ impl FlipFluid2D {
             (height as f32 / particle_spacing).floor() as u32 + 1,
         );
 
+        let cell_count = (particle_resolution.x * particle_resolution.y) as usize;
+        let cell_particle_count = Array1::from_elem(cell_count, 0);
+        let first_cell_particle = Array1::from_elem(cell_count + 1, 0);
+
         let cell_particle_indices = Array1::from_vec(vec![]);
 
         Self {
@@ -92,6 +99,8 @@ impl FlipFluid2D {
             solid,
             cell_type,
             densities,
+            cell_particle_count,
+            first_cell_particle,
             positions,
             velocities,
             roughness,
@@ -202,32 +211,31 @@ impl FlipFluid2D {
     fn push_particles_apart(&mut self, num_iters: usize) {
         const ROUGHNESS_DIFFUSION: f32 = 0.001;
 
-        let cell_count = (self.particle_resolution.x * self.particle_resolution.y) as usize;
-        let mut cell_particle_count = Array1::from_elem(cell_count, 0);
-        let mut first_cell_particle = Array1::from_elem(cell_count + 1, 0);
+        self.cell_particle_count.fill(0);
+        self.first_cell_particle.fill(0);
 
         for p in self.positions.iter() {
             let pi = (p / self.particle_spacing).floor().as_uvec2()
                 .clamp(UVec2::ZERO, self.particle_resolution - 1);
             let cell_nr = pi.x * self.particle_resolution.y + pi.y;
-            cell_particle_count[cell_nr as usize] += 1;
+            self.cell_particle_count[cell_nr as usize] += 1;
         }
 
         let mut first = 0;
 
-        for (count, first_cell) in cell_particle_count.iter().zip(first_cell_particle.iter_mut()) {
+        for (count, first_cell) in self.cell_particle_count.iter().zip(self.first_cell_particle.iter_mut()) {
             first += count;
             *first_cell = first;
         }
 
-        first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
+        self.first_cell_particle[(self.particle_resolution.x * self.particle_resolution.y) as usize] = first;
 
         for (i, p) in self.positions.iter().enumerate() {
             let pi = (p / self.particle_spacing).floor().as_uvec2()
                 .clamp(UVec2::ZERO, self.particle_resolution - 1);
             let cell_nr = (pi.x * self.particle_resolution.y + pi.y) as usize;
-            first_cell_particle[cell_nr] -= 1;
-            self.cell_particle_indices[first_cell_particle[cell_nr]] = i;
+            self.first_cell_particle[cell_nr] -= 1;
+            self.cell_particle_indices[self.first_cell_particle[cell_nr]] = i;
         }
 
         let min_dist = 2.0 * self.particle_radius;
@@ -244,8 +252,8 @@ impl FlipFluid2D {
                 for xi in p0.x..=p1.x {
                     for yi in p0.y..=p1.y {
                         let cell_nr = (xi * self.particle_resolution.y + yi) as usize;
-                        let first = first_cell_particle[cell_nr];
-                        let last = first_cell_particle[cell_nr + 1];
+                        let first = self.first_cell_particle[cell_nr];
+                        let last = self.first_cell_particle[cell_nr + 1];
 
                         for j in first..last {
                             let id = self.cell_particle_indices[j];
