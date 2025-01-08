@@ -475,7 +475,7 @@ impl FlipFluid3D {
         let h1 = h.recip();
         let h2 = 0.5 * h;
 
-        for dim in 0..2 {
+        for dim in 0..3 {
             let delta = Vec3::new(
                 if dim == 0 { 0.0 } else { h2 },
                 if dim == 1 { 0.0 } else { h2 },

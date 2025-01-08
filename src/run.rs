@@ -153,7 +153,7 @@ pub fn run_d3(
         for j in 0..grid_size.y {
             for k in 0..grid_size.z {
                 let mut s = 1.0;
-                if i == 0 || i == grid_size.x - 1 || j == 0 || k == 0 || k == grid_size.z - 1 {
+                if i == 0 || i == grid_size.x - 1 || j == 0 || j == grid_size.y - 1 || k == 0 || k == grid_size.z - 1 {
                     s = 0.0;
                 }
                 scene.fluid.set_solid(i as usize, j as usize, k as usize, s);

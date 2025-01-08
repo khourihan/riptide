@@ -25,6 +25,8 @@ struct Particle;
 fn setup(
     mut commands: Commands,
 ) {
+    commands.insert_resource(ClearColor(Color::BLACK));
+
     commands.spawn((
         Camera3d::default(),
         Projection::Orthographic (

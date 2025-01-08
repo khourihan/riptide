@@ -28,6 +28,8 @@ fn setup(
 ) {
     ambient_light.brightness = 1000.0;
 
+    commands.insert_resource(ClearColor(Color::BLACK));
+
     commands.spawn((
         Transform::from_xyz(0.0, 0.0, 0.0),
         PanOrbitCamera {

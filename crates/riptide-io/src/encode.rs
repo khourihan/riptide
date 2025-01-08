@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufWriter, Write}, mem, path::PathBuf};
+use std::{fs::File, io::{BufWriter, Write}, path::PathBuf};
 
 use thiserror::Error;
 
@@ -77,25 +77,14 @@ pub struct FluidFrameEncoder<W: Write> {
 }
 
 impl<W: Write> FluidFrameEncoder<W> {
-    pub fn encode_section<T>(&mut self, len: usize, values: &[T]) -> Result<(), EncodingError> {
+    pub fn encode_section<const N: usize, T, I>(&mut self, len: usize, values: I) -> Result<(), EncodingError>
+    where
+        I: Iterator<Item = T>,
+        T: AsBytes<N>,
+    {
         self.writer.write_all(&(len as u64).to_ne_bytes())?;
 
-        let bytes: Vec<_> = values.iter().flat_map(|v| {
-            let mut b = Vec::with_capacity(mem::size_of::<T>());
-
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    std::ptr::addr_of!(v).cast::<u8>(),
-                    b.as_mut_ptr(),
-                    mem::size_of::<T>(),
-                );
-
-                b.set_len(mem::size_of::<T>());
-            }
-
-            b
-        }).collect();
-
+        let bytes: Vec<_> = values.flat_map(|v| v.to_bytes()).collect();
         self.writer.write_all(&bytes)?;
 
         Ok(())
