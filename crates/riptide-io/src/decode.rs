@@ -61,8 +61,10 @@ impl FluidDataDecoder {
         let dim = Self::read_value::<1, u8, _>(&mut reader)?;
         let fps = Self::read_value::<4, u32, _>(&mut reader)?;
         let num_frames = Self::read_value::<8, u64, _>(&mut reader)?;
-        let mut size: SmallVec<[_; 4]> = SmallVec::new();
 
+        let particle_radius = Self::read_value::<4, f32, _>(&mut reader)?;
+
+        let mut size: SmallVec<[_; 4]> = SmallVec::new();
         for _ in 0..dim {
             let v = Self::read_value::<4, f32, _>(&mut reader)?;
             size.push(v);
@@ -75,6 +77,7 @@ impl FluidDataDecoder {
             dim,
             fps,
             num_frames,
+            particle_radius,
             size,
         })
     }
@@ -90,10 +93,14 @@ impl FluidDataDecoder {
         let n_particles = self.dim as u64 * Self::read_value::<8, u64, _>(&mut reader)?;
         let positions = Self::read_values::<f32, _>(&mut reader, n_particles as usize)?;
 
+        let n_gradients = self.dim as u64 * Self::read_value::<8, u64, _>(&mut reader)?;
+        let gradients = Self::read_values::<f32, _>(&mut reader, n_gradients as usize)?;
+
         self.current_frame += 1;
 
         Ok(Some(FluidFrameData {
             positions: FluidDataArray(positions),
+            gradients: FluidDataArray(gradients),
         }))
     }
 
@@ -106,6 +113,7 @@ pub struct FluidMetadata {
     pub dim: u8,
     pub fps: u32,
     pub num_frames: u64,
+    pub particle_radius: f32,
     pub size: SmallVec<[f32; 4]>,
 }
 
@@ -117,6 +125,7 @@ impl FluidMetadata {
 
 pub struct FluidFrameData {
     pub positions: FluidDataArray,
+    pub gradients: FluidDataArray,
 }
 
 pub struct FluidDataArray(Vec<f32>);
@@ -128,6 +137,14 @@ impl FluidDataArray {
 
     pub fn get<const D: usize>(&self, i: usize) -> [f32; D] {
         self.0[i..i + D].try_into().unwrap()
+    }
+
+    pub fn len<const D: usize>(&self) -> usize {
+        self.0.len() / D
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

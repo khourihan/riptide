@@ -14,9 +14,6 @@ pub struct FluidDataEncoder {
     num_frames: u64,
     fps: u32,
     current_frame: u64,
-    /// Whether or not to include velocity and roughness information in addition to the position of
-    /// particles.
-    verbose: bool,
 }
 
 impl FluidDataEncoder {
@@ -28,7 +25,6 @@ impl FluidDataEncoder {
             num_frames,
             fps,
             current_frame: 0,
-            verbose: false,
         })
     }
 
@@ -49,6 +45,8 @@ impl FluidDataEncoder {
         writer.write_all(&[D as u8])?;
         writer.write_all(&self.fps.to_ne_bytes())?;
         writer.write_all(&self.num_frames.to_ne_bytes())?;
+
+        writer.write_all(&scene.fluid.particle_radius().to_ne_bytes())?;
 
         for i in 0..D {
             writer.write_all(&scene.size()[i].to_bytes())?;

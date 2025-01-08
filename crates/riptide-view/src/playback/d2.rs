@@ -60,7 +60,7 @@ fn spawn_particles(
         transform.translation.y = size.y / 2.0;
     }
 
-    let mesh = meshes.add(Rectangle::from_size(Vec2::splat(0.2 / 100.0 * size.y)));
+    let mesh = meshes.add(Rectangle::from_size(Vec2::splat(meta.0.particle_radius)));
 
     let frame = fluid.0.decode_frame().unwrap();
 
@@ -73,13 +73,12 @@ fn spawn_particles(
         Particle3d,
         InstanceParticleData(
             frame.positions.iter::<2>()
-                .map(|pos| InstanceData {
-                    position: {
-                        Vec3::new(pos[0], pos[1], 0.0)
-                    },
-                    scale: 1.0,
-                    color: LinearRgba::from(Color::srgb(0.0, 0.0, 1.0)).to_f32_array(),
-                })
+                .map(|pos| InstanceData::new(
+                    Vec3::new(pos[0], pos[1], 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                    1.0,
+                    LinearRgba::from(Color::srgb(0.0, 0.0, 1.0)),
+                ))
                 .collect()
         ),
         NoFrustumCulling,

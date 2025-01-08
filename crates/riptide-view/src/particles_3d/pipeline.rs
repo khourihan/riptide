@@ -2,7 +2,7 @@ use std::mem;
 
 use bevy::{
     core_pipeline::core_3d::{Transparent3d, CORE_3D_DEPTH_FORMAT}, ecs::{query::ROQueryItem, system::{lifetimeless::{Read, SRes}, SystemParamItem, SystemState}}, pbr::RenderMeshInstances, prelude::*, render::{
-        mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo, VertexBufferLayout}, render_asset::RenderAssets, render_phase::{
+        extract_component::{ComponentUniforms, DynamicUniformIndex}, mesh::{allocator::MeshAllocator, MeshVertexBufferLayoutRef, PrimitiveTopology, RenderMesh, RenderMeshBufferInfo, VertexBufferLayout}, render_asset::RenderAssets, render_phase::{
             DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases
         }, render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayout, BindGroupLayoutEntry, BindingType, BufferBindingType, BufferInitDescriptor, BufferUsages, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Face, FragmentState, FrontFace, MultisampleState, PipelineCache, PolygonMode, PrimitiveState, RenderPipelineDescriptor, ShaderStages, ShaderType, SpecializedMeshPipeline, SpecializedMeshPipelineError, SpecializedMeshPipelines, TextureFormat, VertexAttribute, VertexFormat, VertexState, VertexStepMode
@@ -22,6 +22,15 @@ pub struct RenderParticle {
 
 #[derive(Component)]
 pub struct ParticleViewBindGroup(BindGroup);
+
+#[derive(Resource)]
+pub struct ParticleBindGroup(BindGroup);
+
+#[derive(Component, Clone, Copy, ShaderType)]
+pub struct ParticleUniform {
+    pub directional: Vec4,
+    pub ambient: Vec4,
+}
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -75,6 +84,28 @@ pub fn prepare_particle_view_bind_groups(
             ),
         ));
     }
+}
+
+pub fn prepare_particle_bind_groups(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    particle_pipeline: Res<ParticlePipeline>,
+    particle_uniforms_buffer: Res<ComponentUniforms<ParticleUniform>>,
+) {
+    let Some(binding) = particle_uniforms_buffer.uniforms().binding() else {
+        return;
+    };
+
+    commands.insert_resource(ParticleBindGroup(
+        render_device.create_bind_group(
+            Some("particle_bind_group"),
+            &particle_pipeline.particle_layout,
+            &[BindGroupEntry {
+                binding: 0,
+                resource: binding,
+            }]
+        )
+    ));
 }
 
 pub fn prepare_instance_buffers(
@@ -180,6 +211,7 @@ pub fn queue_particles(
 #[derive(Resource, Clone)]
 pub struct ParticlePipeline {
     view_layout: BindGroupLayout,
+    particle_layout: BindGroupLayout,
 }
 
 impl FromWorld for ParticlePipeline {
@@ -202,8 +234,23 @@ impl FromWorld for ParticlePipeline {
             }],
         );
 
+        let particle_layout = render_device.create_bind_group_layout(
+            "particle_layout",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(ParticleUniform::min_size())
+                },
+                count: None,
+            }],
+        );
+
         Self {
             view_layout,
+            particle_layout,
         }
     }
 }
@@ -243,6 +290,11 @@ impl SpecializedMeshPipeline for ParticlePipeline {
                     offset: VertexFormat::Float32x4.size(),
                     shader_location: 3,
                 },
+                VertexAttribute {
+                    format: VertexFormat::Float32x4,
+                    offset: 2 * VertexFormat::Float32x4.size(),
+                    shader_location: 4,
+                },
             ],
         };
 
@@ -264,6 +316,7 @@ impl SpecializedMeshPipeline for ParticlePipeline {
             label: Some("particle_pipeline".into()),
             layout: vec![
                 self.view_layout.clone(),
+                self.particle_layout.clone(),
             ],
             vertex: VertexState {
                 shader: PARTICLE_SHADER_HANDLE,
@@ -326,6 +379,31 @@ impl<const I: usize> RenderCommand<Transparent3d> for SetParticleViewBindGroup<I
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
         pass.set_bind_group(I, &particle_mesh_bind_group.0, &[view_uniform.offset]);
+        RenderCommandResult::Success
+    }
+}
+
+pub struct SetParticleBindGroup<const I: usize>;
+impl<const I: usize> RenderCommand<Transparent3d> for SetParticleBindGroup<I> {
+    type Param = SRes<ParticleBindGroup>;
+    type ViewQuery = ();
+    type ItemQuery = Read<DynamicUniformIndex<ParticleUniform>>;
+
+    fn render<'w>(
+        _item: &Transparent3d,
+        _view: ROQueryItem<'w, Self::ViewQuery>,
+        particle_index: Option<ROQueryItem<'w, Self::ItemQuery>>,
+        particle_bind_group: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        let particle_bind_group = particle_bind_group.into_inner();
+
+        let Some(particle_index) = particle_index else {
+            return RenderCommandResult::Skip;
+        };
+
+        pass.set_bind_group(I, &particle_bind_group.0, &[particle_index.index()]);
+
         RenderCommandResult::Success
     }
 }
@@ -400,5 +478,6 @@ impl<P: PhaseItem> RenderCommand<P> for DrawParticleMesh {
 pub type DrawParticle = (
     SetItemPipeline,
     SetParticleViewBindGroup<0>,
+    SetParticleBindGroup<1>,
     DrawParticleMesh,
 );

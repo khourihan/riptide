@@ -8,7 +8,7 @@ pub mod extract;
 const PARTICLE_SHADER_HANDLE: Handle<Shader> = Handle::weak_from_u128(0xc3f53d447b7a8000);
 
 #[derive(Default, Clone, Copy, Component, ExtractComponent, Debug, Reflect)]
-#[require(Particle3dDepth)]
+#[require(Particle3dDepth, ParticleLight)]
 pub struct Particle3d;
 
 #[derive(Clone, Component, Reflect, Debug, Copy)]
@@ -25,6 +25,13 @@ impl Default for Particle3dDepth {
 pub struct Particle3dLockAxis {
     pub y_axis: bool,
     pub rotation: bool,
+}
+
+#[derive(Default, Clone, Copy, Component, Debug, Reflect)]
+pub struct ParticleLight {
+    pub direction: Vec3,
+    pub brightness: f32,
+    pub ambient: Vec4,
 }
 
 #[derive(Component, Deref)]
@@ -45,7 +52,19 @@ impl ExtractComponent for InstanceParticleData {
 pub struct InstanceData {
     pub position: Vec3,
     pub scale: f32,
+    pub normal: Vec4,
     pub color: [f32; 4],
+}
+
+impl InstanceData {
+    pub fn new(position: Vec3, normal: Vec3, scale: f32, color: LinearRgba) -> InstanceData {
+        InstanceData {
+            position,
+            scale,
+            normal: Vec4::new(normal.x, normal.y, normal.z, 0.0),
+            color: color.to_f32_array(),
+        }
+    }
 }
 
 #[derive(Component)]

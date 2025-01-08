@@ -1,8 +1,8 @@
 use bevy::{prelude::*, render::{sync_world::RenderEntity, Extract}};
 
 use super::{
-    pipeline::RenderParticle,
-    Particle3dDepth, Particle3dLockAxis,
+    pipeline::{ParticleUniform, RenderParticle},
+    Particle3dDepth, Particle3dLockAxis, ParticleLight,
 };
 
 pub fn extract_particles(
@@ -12,6 +12,7 @@ pub fn extract_particles(
         Query<(
             &RenderEntity,
             &ViewVisibility,
+            &ParticleLight,
             &Particle3dDepth,
             Option<&Particle3dLockAxis>,
         )>
@@ -22,6 +23,7 @@ pub fn extract_particles(
     for (
         render_entity,
         visibility,
+        &light,
         &depth,
         lock_axis
     ) in &particle_query {
@@ -32,6 +34,10 @@ pub fn extract_particles(
         batch.push((
             render_entity.id(),
             (
+                ParticleUniform {
+                    directional: light.direction.extend(light.brightness),
+                    ambient: light.ambient,
+                },
                 RenderParticle {
                     depth,
                     lock_axis: lock_axis.copied(),

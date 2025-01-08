@@ -8,4 +8,6 @@ pub trait Fluid<const D: usize> {
     type Params;
 
     fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet<D>);
+
+    fn particle_radius(&self) -> f32;
 }

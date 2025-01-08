@@ -13,7 +13,7 @@ pub struct FlipFluid2D {
     density: f32,
     size: UVec2,
     /// Cell size.
-    spacing: f32,
+    pub spacing: f32,
 
     rest_density: f32,
     particle_radius: f32,
@@ -34,7 +34,7 @@ pub struct FlipFluid2D {
     /// Grid cell types (`Fluid`, `Solid` or `Air`).
     cell_type: Array2<CellType>,
     /// Grid densities.
-    densities: Array2<f32>,
+    pub densities: Array2<f32>,
 
     cell_particle_count: Array1<usize>,
     first_cell_particle: Array1<usize>,
@@ -596,6 +596,28 @@ impl FlipFluid2D {
             }
         }
     }
+
+    pub fn sample_density(&self, p: Vec2) -> f32 {
+        let h1 = self.spacing.recip();
+
+        let x0 = (p.x * h1).floor() as usize;
+        let x1 = if (p.x * h1).fract() > 0.5 { x0 + 1 } else { x0 - 1 };
+        let y0 = (p.y * h1).floor() as usize;
+        let y1 = if (p.y * h1).fract() > 0.5 { y0 + 1 } else { y0 - 1 };
+
+        let dx = (p.x * h1) - (x0 as f32 + 0.5);
+        let dy = (p.y * h1) - (y0 as f32 + 0.5);
+
+        let v00 = self.densities.get((x0, y0)).copied().unwrap_or(0.0);
+        let v01 = self.densities.get((x0, y1)).copied().unwrap_or(0.0);
+        let v10 = self.densities.get((x1, y0)).copied().unwrap_or(0.0);
+        let v11 = self.densities.get((x1, y1)).copied().unwrap_or(0.0);
+
+        v00 * (1.0 - dx) * (1.0 - dy)
+            + v01 * (1.0 - dx) * dy
+            + v10 * dx * (1.0 - dy)
+            + v11 * dx * dy
+    }
 }
 
 pub struct FlipFluid2DParams {
@@ -645,5 +667,9 @@ impl Fluid<2> for FlipFluid2D {
         }
 
         self.update_roughness();
+    }
+
+    fn particle_radius(&self) -> f32 {
+        self.particle_radius
     }
 }

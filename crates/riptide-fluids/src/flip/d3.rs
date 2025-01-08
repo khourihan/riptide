@@ -11,9 +11,9 @@ pub struct FlipFluid3D {
     ///
     /// Air in `0` kg/m³ and water is `1000` kg/m³.
     density: f32,
-    size: UVec3,
+    pub size: UVec3,
     /// Cell size.
-    spacing: f32,
+    pub spacing: f32,
 
     rest_density: f32,
     particle_radius: f32,
@@ -34,7 +34,7 @@ pub struct FlipFluid3D {
     /// Grid cell types (`Fluid`, `Solid` or `Air`).
     cell_type: Array3<CellType>,
     /// Grid densities.
-    densities: Array3<f32>,
+    pub densities: Array3<f32>,
 
     cell_particle_count: Array1<usize>,
     first_cell_particle: Array1<usize>,
@@ -663,6 +663,39 @@ impl FlipFluid3D {
             }
         }
     }
+
+    pub fn sample_density(&self, p: Vec3) -> f32 {
+        let h1 = self.spacing.recip();
+
+        let x0 = (p.x * h1).floor() as usize;
+        let x1 = if (p.x * h1).fract() > 0.5 { x0 + 1 } else { x0 - 1 };
+        let y0 = (p.y * h1).floor() as usize;
+        let y1 = if (p.y * h1).fract() > 0.5 { y0 + 1 } else { y0 - 1 };
+        let z0 = (p.z * h1).floor() as usize;
+        let z1 = if (p.z * h1).fract() > 0.5 { z0 + 1 } else { z0 - 1 };
+
+        let dx = (p.x * h1) - (x0 as f32 + 0.5);
+        let dy = (p.y * h1) - (y0 as f32 + 0.5);
+        let dz = (p.z * h1) - (z0 as f32 + 0.5);
+
+        let v000 = self.densities.get((x0, y0, z0)).copied().unwrap_or(0.0);
+        let v001 = self.densities.get((x0, y0, z1)).copied().unwrap_or(0.0);
+        let v010 = self.densities.get((x0, y1, z0)).copied().unwrap_or(0.0);
+        let v011 = self.densities.get((x0, y1, z1)).copied().unwrap_or(0.0);
+        let v100 = self.densities.get((x1, y0, z0)).copied().unwrap_or(0.0);
+        let v101 = self.densities.get((x1, y0, z1)).copied().unwrap_or(0.0);
+        let v110 = self.densities.get((x1, y1, z0)).copied().unwrap_or(0.0);
+        let v111 = self.densities.get((x1, y1, z1)).copied().unwrap_or(0.0);
+
+        v000 * (1.0 - dx) * (1.0 - dy) * (1.0 - dz)
+            + v001 * (1.0 - dx) * (1.0 - dy) * dz
+            + v010 * (1.0 - dx) * dy * (1.0 - dz)
+            + v011 * (1.0 - dx) * dy * dz
+            + v100 * dx * (1.0 - dy) * (1.0 - dz)
+            + v101 * dx * (1.0 - dy) * dz
+            + v110 * dx * dy * (1.0 - dz)
+            + v111 * dx * dy * dz
+    }
 }
 
 
@@ -713,5 +746,9 @@ impl Fluid<3> for FlipFluid3D {
         }
 
         self.update_roughness();
+    }
+
+    fn particle_radius(&self) -> f32 {
+        self.particle_radius
     }
 }

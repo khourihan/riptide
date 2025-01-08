@@ -3,7 +3,7 @@ use bevy::{
     core_pipeline::core_3d::Transparent3d,
     prelude::*,
     render::{
-        extract_component::ExtractComponentPlugin,
+        extract_component::{ExtractComponentPlugin, UniformComponentPlugin},
         render_phase::AddRenderCommand,
         render_resource::SpecializedMeshPipelines,
         view::{check_visibility, VisibilitySystems::CheckVisibility},
@@ -11,12 +11,12 @@ use bevy::{
     },
 };
 
-use crate::particles_3d::{InstanceParticleData, Particle3d, PARTICLE_SHADER_HANDLE};
+use crate::particles_3d::{pipeline::ParticleUniform, InstanceParticleData, Particle3d, PARTICLE_SHADER_HANDLE};
 
 use super::{
     extract::extract_particles,
     pipeline::{
-        prepare_instance_buffers, prepare_particle_view_bind_groups, queue_particles, DrawParticle, ParticlePipeline
+        prepare_instance_buffers, prepare_particle_bind_groups, prepare_particle_view_bind_groups, queue_particles, DrawParticle, ParticlePipeline
     },
 };
 
@@ -31,7 +31,8 @@ impl Plugin for Particle3dPlugin {
             Shader::from_wgsl
         );
 
-        app.add_plugins(ExtractComponentPlugin::<Particle3d>::default())
+        app.add_plugins(UniformComponentPlugin::<ParticleUniform>::default())
+            .add_plugins(ExtractComponentPlugin::<Particle3d>::default())
             .add_plugins(ExtractComponentPlugin::<InstanceParticleData>::default())
             .add_systems(
                 PostUpdate,
@@ -52,6 +53,10 @@ impl Plugin for Particle3dPlugin {
             .add_systems(
                 Render,
                 prepare_particle_view_bind_groups.in_set(RenderSet::PrepareBindGroups),
+            )
+            .add_systems(
+                Render,
+                prepare_particle_bind_groups.in_set(RenderSet::PrepareBindGroups),
             )
             .add_systems(
                 Render,

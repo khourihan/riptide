@@ -9,20 +9,29 @@ struct View {
     viewport: vec4<f32>,
 };
 
+struct Particle {
+    directional: vec4<f32>,
+    ambient: vec4<f32>,
+};
+
 @group(0) @binding(0)
 var<uniform> view: View;
+@group(1) @binding(0)
+var<uniform> particle: Particle;
 
 struct Vertex {
     @location(0) position: vec3<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) i_pos_scale: vec4<f32>,
-    @location(3) i_color: vec4<f32>,
+    @location(3) i_normal: vec4<f32>,
+    @location(4) i_color: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) normal: vec4<f32>,
 };
 
 @vertex
@@ -47,6 +56,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.uv = vertex.uv;
 
     out.color = vertex.i_color;
+    out.normal = vertex.i_normal;
 
     return out;
 }
@@ -54,6 +64,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 struct Fragment {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) normal: vec4<f32>,
 };
 
 @fragment
@@ -65,5 +76,12 @@ fn fragment(fragment: Fragment) -> @location(0) vec4<f32> {
         discard;
     }
 
-    return fragment.color;
+    var col = fragment.color.xyz;
+
+    let len_g = length(fragment.normal.xyz);
+    let l_directional = max(dot(particle.directional.xyz, fragment.normal.xyz / len_g), 0.0);
+    let l = l_directional * particle.directional.w + particle.ambient.xyz * particle.ambient.w;
+    col *= clamp(l, vec3(0.0), vec3(1.0));
+
+    return vec4(col, 1.0);
 }
