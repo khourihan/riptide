@@ -1,6 +1,6 @@
 use bevy::{prelude::*, render::{camera::ScalingMode, view::NoFrustumCulling}};
 
-use crate::particles_3d::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d};
+use crate::particles_3d::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d, ParticleLight};
 
 use super::{FluidDataDecoder, FluidMetadata, PlaybackPlugin, PlaybackState, SetupState};
 
@@ -71,6 +71,11 @@ fn spawn_particles(
     commands.spawn((
         Mesh3d(mesh),
         Particle3d,
+        ParticleLight {
+            direction: Vec3::X,
+            brightness: 0.0,
+            ambient: Vec4::ONE,
+        },
         InstanceParticleData(
             frame.positions.iter::<2>()
                 .map(|pos| InstanceData::new(
