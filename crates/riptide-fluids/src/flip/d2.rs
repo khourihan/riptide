@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use glam::{UVec2, Vec2};
 use ndarray::{azip, Array0, Array1, Array2, Axis};
 
@@ -11,7 +13,7 @@ pub struct FlipFluid2D {
     ///
     /// Air in `0` kg/m³ and water is `1000` kg/m³.
     density: f32,
-    size: UVec2,
+    grid_size: UVec2,
     /// Cell size.
     pub spacing: f32,
 
@@ -62,12 +64,12 @@ impl FlipFluid2D {
         let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
         let h = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
 
-        let u = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let v = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let weight_u = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let weight_v = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let u_star = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let v_star = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let u = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
+        let v = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
+        let weight_u = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
+        let weight_v = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
+        let u_star = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
+        let v_star = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
         let pressure = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
         let solid = Array2::from_elem((size.x as usize, size.y as usize), 1.0);
         let cell_type = Array2::from_elem((size.x as usize, size.y as usize), CellType::Fluid);
@@ -91,7 +93,7 @@ impl FlipFluid2D {
 
         Self {
             density,
-            size,
+            grid_size: size,
             spacing: h,
             rest_density: 0.0,
             particle_radius,
@@ -138,13 +140,13 @@ impl FlipFluid2D {
     }
 
     pub fn size(&self) -> UVec2 {
-        self.size
+        self.grid_size
     }
 
     pub fn bounds(&self) -> (Vec2, Vec2) {
         (
             Vec2::splat(self.spacing + self.particle_radius),
-            (self.size - 1).as_vec2() * self.spacing - self.particle_radius,
+            (self.grid_size - 1).as_vec2() * self.spacing - self.particle_radius,
         )
     }
 
@@ -275,26 +277,26 @@ impl FlipFluid2D {
         self.densities.fill(0.0);
 
         for p in self.positions.iter() {
-            let pi = p.clamp(Vec2::splat(h), (self.size - 1).as_vec2() * h);
+            let pi = p.clamp(Vec2::splat(h), (self.grid_size - 1).as_vec2() * h);
 
             let p0 = ((pi - h2) * h1).floor().as_uvec2();
             let t = ((pi - h2) - p0.as_vec2() * h) * h1;
-            let p1 = (p0 + 1).min(self.size - 2);
+            let p1 = (p0 + 1).min(self.grid_size - 2);
             let s = 1.0 - t;
 
-            if p0.x < self.size.x && p0.y < self.size.y {
+            if p0.x < self.grid_size.x && p0.y < self.grid_size.y {
                 self.densities[(p0.x as usize, p0.y as usize)] += s.x * s.y;
             }
 
-            if p1.x < self.size.x && p0.y < self.size.y {
+            if p1.x < self.grid_size.x && p0.y < self.grid_size.y {
                 self.densities[(p1.x as usize, p0.y as usize)] += t.x * s.y;
             }
 
-            if p1.x < self.size.x && p1.y < self.size.y {
+            if p1.x < self.grid_size.x && p1.y < self.grid_size.y {
                 self.densities[(p1.x as usize, p1.y as usize)] += t.x * t.y;
             }
 
-            if p0.x < self.size.x && p1.y < self.size.y {
+            if p0.x < self.grid_size.x && p1.y < self.grid_size.y {
                 self.densities[(p0.x as usize, p1.y as usize)] += s.x * t.y;
             }
         }
@@ -317,84 +319,270 @@ impl FlipFluid2D {
     }
 
     fn transfer_velocities_to_grid(&mut self) {
-        let h = self.spacing;
-        let h1 = h.recip();
-        let h2 = 0.5 * h;
-
-        self.u_star.assign(&self.u);
-        self.v_star.assign(&self.v);
-        self.weight_u.fill(0.0);
-        self.weight_v.fill(0.0);
         self.u.fill(0.0);
         self.v.fill(0.0);
+        self.weight_u.fill(0.0);
+        self.weight_v.fill(0.0);
+
+        let nx = self.grid_size.x as usize;
+        let ny = self.grid_size.y as usize;
+
+        let h1 = self.spacing.recip();
+        let h = 2.0 * self.spacing;
+        let h2 = h * h;
+        let h4 = h2 * h2;
+        let coeff = 315.0 / (64.0 * PI * h4 * h4 * h);
 
         azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
             *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
         });
 
-        for p in self.positions.iter() {
-            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.size - 1);
+        for i in 0..self.n_particles {
+            let pos = self.positions[i];
+            let vel = self.velocities[i];
+
+            let pi = (pos * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.grid_size - 1);
 
             if self.cell_type[(pi.x as usize, pi.y as usize)] == CellType::Air {
                 self.cell_type[(pi.x as usize, pi.y as usize)] = CellType::Fluid;
             }
-        }
 
-        for dim in 0..2 {
-            let delta = Vec2::new(
-                if dim == 0 { 0.0 } else { h2 },
-                if dim == 1 { 0.0 } else { h2 },
-            );
+            if pi.x >= 2 && pi.y >= 2 && pi.x < self.grid_size.x - 3 && pi.y < self.grid_size.y - 3 {
+                for j in pi.y as usize - 2..=pi.y as usize + 3 {
+                    for i in pi.x as usize - 2..=pi.x as usize + 3 {
+                        let rx = pos.x - i as f32 * self.spacing;
+                        let ry = pos.y - j as f32 * self.spacing;
 
-            let u = if dim == 0 { &mut self.u } else { &mut self.v };
-            let weight = if dim == 0 { &mut self.weight_u } else { &mut self.weight_v };
+                        let x_diff = h2 - ry * ry - (rx + 0.5 * self.spacing) * (rx + 0.5 * self.spacing);
+                        let y_diff = h2 - rx * rx - (ry + 0.5 * self.spacing) * (ry + 0.5 * self.spacing);
 
-            for i in 0..self.n_particles {
-                let p = self.positions[i];
-                let pi = p.clamp(Vec2::splat(h), (self.size - 1).as_vec2() * h);
+                        if x_diff >= 0.0 {
+                            let u_weight_1 = coeff * x_diff * x_diff * x_diff;
+                            self.u[(i, j)] += u_weight_1 * vel.x;
+                            self.weight_u[(i, j)] += u_weight_1;
+                        }
 
-                let p0 = ((pi - delta) * h1).floor().as_uvec2().min(self.size - 2);
-                let t = ((pi - delta) - p0.as_vec2() * h) * h1;
-                let p1 = (p0 + 1).min(self.size - 2);
-                let s = 1.0 - t;
+                        if y_diff >= 0.0 {
+                            let v_weight_1 = coeff * y_diff * y_diff * y_diff;
+                            self.v[(i, j)] += v_weight_1 * vel.y;
+                            self.weight_v[(i, j)] += v_weight_1;
+                        }
+                    }
+                }
+            } else {
+                for j in pi.y.max(2) as usize - 2..=pi.y as usize + 3 {
+                    for i in pi.x.max(2) as usize - 2..=pi.x as usize + 3 {
+                        let rx = pos.x - i as f32 * self.spacing;
+                        let ry = pos.y - j as f32 * self.spacing;
 
-                let i0 = (p0.x as usize, p0.y as usize);
-                let i1 = (p1.x as usize, p0.y as usize);
-                let i2 = (p1.x as usize, p1.y as usize);
-                let i3 = (p0.x as usize, p1.y as usize);
+                        if i <= nx && j < ny {
+                            let x_diff = h2 - ry * ry - (rx + 0.5 * self.spacing) * (rx + 0.5 * self.spacing);
 
-                let d0 = s.x * s.y;
-                let d1 = t.x * s.y;
-                let d2 = t.x * t.y;
-                let d3 = s.x * t.y;
+                            if x_diff >= 0.0 {
+                                let u_weight_1 = coeff * x_diff * x_diff * x_diff;
+                                self.u[(i, j)] += u_weight_1 * vel.x;
+                                self.weight_u[(i, j)] += u_weight_1;
+                            }
+                        }
 
-                let v = self.velocities[i][dim];
-                u[i0] += v * d0;
-                u[i1] += v * d1;
-                u[i2] += v * d2;
-                u[i3] += v * d3;
-                weight[i0] += d0;
-                weight[i1] += d1;
-                weight[i2] += d2;
-                weight[i3] += d3;
+                        if i < nx && j <= ny {
+                            let y_diff = h2 - rx * rx - (ry + 0.5 * self.spacing) * (ry + 0.5 * self.spacing);
+
+                            if y_diff >= 0.0 {
+                                let v_weight_1 = coeff * y_diff * y_diff * y_diff;
+                                self.v[(i, j)] += v_weight_1 * vel.y;
+                                self.weight_v[(i, j)] += v_weight_1;
+                            }
+                        }
+                    }
+                }
             }
-
-            azip!((uv in u, w in weight) {
-                if *w > 0.0 {
-                    *uv /= *w;
-                }
-            });
         }
 
-        for i in 0..self.size.x as usize {
-            for j in 0..self.size.y as usize {
-                let solid = self.cell_type[(i, j)] == CellType::Solid;
+        let mut visited_u = vec![false; (self.grid_size.y * (self.grid_size.x + 1)) as usize];
+        let mut visited_v = vec![false; (self.grid_size.x * (self.grid_size.y + 1)) as usize];
 
-                if solid || (i > 0 && self.cell_type[(i - 1, j)] == CellType::Solid) {
-                    self.u[(i, j)] = self.u_star[(i, j)];
+        for j in 0..ny {
+            for i in 0..nx {
+                let u_idx = (nx + 1) * j + i;
+                let v_idx = nx * j + i;
+
+                let u_weight = self.weight_u[(i, j)];
+                let v_weight = self.weight_v[(i, j)];
+
+                if u_weight != 0.0 {
+                    self.u[(i, j)] /= u_weight;
+                    visited_u[u_idx] = true;
                 }
-                if solid || (j > 0 && self.cell_type[(i, j - 1)] == CellType::Solid) {
-                    self.v[(i, j)] = self.v_star[(i, j)];
+
+                if v_weight != 0.0 {
+                    self.v[(i, j)] /= v_weight;
+                    visited_v[v_idx] = true;
+                }
+            }
+        }
+
+        for j in 0..ny {
+            let u_idx = (nx + 1) * j + nx;
+            let u_weight = self.weight_u[(nx, j)];
+
+            if u_weight != 0.0 {
+                self.u[(nx, j)] /= u_weight;
+                visited_u[u_idx] = true;
+            }
+        }
+
+        for i in 0..nx {
+            let v_idx = nx * ny + i;
+            let v_weight = self.weight_v[(i, ny)];
+
+            if v_weight != 0.0 {
+                self.v[(i, ny)] /= v_weight;
+                visited_v[v_idx] = true;
+            }
+        }
+
+        for j in 0..ny {
+            for i in 0..nx {
+                let u_idx = (nx + 1) * j + i;
+                let v_idx = nx * j + i;
+
+                if !visited_u[u_idx] {
+                    let mut u_counter: u8 = 0;
+
+                    let u_left = if i > 0 && visited_u[u_idx - 1] {
+                        u_counter += 1;
+                        self.u[(i - 1, j)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_right = if i < nx - 1 && visited_u[u_idx + 1] {
+                        u_counter += 1;
+                        self.u[(i + 1, j)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
+                        u_counter += 1;
+                        self.u[(i, j - 1)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
+                        u_counter += 1;
+                        self.u[(i, j + 1)]
+                    } else {
+                        0.0
+                    };
+
+                    if u_counter != 0 {
+                        self.u[(i, j)] = (u_left + u_right + u_down + u_up) / u_counter as f32;
+                    }
+                }
+
+                if !visited_v[v_idx] {
+                    let mut v_counter: u8 = 0;
+
+                    let v_left = if i > 0 && visited_v[v_idx - 1] {
+                        v_counter += 1;
+                        self.v[(i - 1, j)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
+                        v_counter += 1;
+                        self.v[(i + 1, j)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_down = if j > 0 && visited_v[v_idx - nx] {
+                        v_counter += 1;
+                        self.v[(i, j - 1)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_up = if j < ny - 1 && visited_v[v_idx + nx] {
+                        v_counter += 1;
+                        self.v[(i, j + 1)]
+                    } else {
+                        0.0
+                    };
+
+                    if v_counter != 0 {
+                        self.v[(i, j)] = (v_left + v_right + v_down + v_up) / v_counter as f32;
+                    }
+                }
+            }
+        }
+
+        for j in 0..ny {
+            let u_idx = (nx + 1) * j + nx;
+
+            if !visited_u[u_idx] {
+                let mut u_counter: u8 = 0;
+
+                let u_left = if visited_u[u_idx - 1] {
+                    u_counter += 1;
+                    self.u[(nx - 1, j)]
+                } else {
+                    0.0
+                };
+
+                let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
+                    u_counter += 1;
+                    self.u[(nx, j - 1)]
+                } else {
+                    0.0
+                };
+
+                let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
+                    u_counter += 1;
+                    self.u[(nx, j + 1)]
+                } else {
+                    0.0
+                };
+
+                if u_counter != 0 {
+                    self.u[(nx, j)] = (u_left + u_down + u_up) / u_counter as f32;
+                }
+            }
+        }
+
+        for i in 0..nx {
+            let v_idx = nx * ny + i;
+
+            if !visited_v[v_idx] {
+                let mut v_counter: u8 = 0;
+
+                let v_left = if i > 0 && visited_v[v_idx - 1] {
+                    v_counter += 1;
+                    self.v[(i - 1, ny)]
+                } else {
+                    0.0
+                };
+
+                let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
+                    v_counter += 1;
+                    self.v[(i + 1, ny)]
+                } else {
+                    0.0
+                };
+
+                let v_down = if visited_v[v_idx - nx] {
+                    v_counter += 1;
+                    self.v[(i, ny - 1)]
+                } else {
+                    0.0
+                };
+
+                if v_counter != 0 {
+                    self.v[(i, ny)] = (v_left + v_right + v_down) / v_counter as f32;
                 }
             }
         }
@@ -416,11 +604,11 @@ impl FlipFluid2D {
 
             for i in 0..self.n_particles {
                 let p = self.positions[i];
-                let pi = p.clamp(Vec2::splat(h), (self.size - 1).as_vec2() * h);
+                let pi = p.clamp(Vec2::splat(h), (self.grid_size - 1).as_vec2() * h);
 
-                let p0 = ((pi - delta) * h1).floor().as_uvec2().min(self.size - 2);
+                let p0 = ((pi - delta) * h1).floor().as_uvec2().min(self.grid_size - 2);
                 let t = ((pi - delta) - p0.as_vec2() * h) * h1;
-                let p1 = (p0 + 1).min(self.size - 2);
+                let p1 = (p0 + 1).min(self.grid_size - 2);
                 let s = 1.0 - t;
 
                 let i0 = (p0.x as usize, p0.y as usize);
@@ -469,8 +657,8 @@ impl FlipFluid2D {
         let cp = self.density * self.spacing / dt;
 
         for _iter in 0..num_iters {
-            for i in 1..self.size.x as usize - 1 {
-                for j in 1..self.size.y as usize - 1 {
+            for i in 1..self.grid_size.x as usize - 1 {
+                for j in 1..self.grid_size.y as usize - 1 {
                     if self.cell_type[(i, j)] != CellType::Fluid {
                         continue;
                     }
@@ -522,7 +710,7 @@ impl FlipFluid2D {
         for i in 0..self.n_particles {
             let s = 0.01;
             let p = self.positions[i];
-            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ONE, self.size - 1);
+            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ONE, self.grid_size - 1);
 
             self.roughness[i] = (self.roughness[i] - s).clamp(0.0, 1.0);
 
@@ -537,8 +725,8 @@ impl FlipFluid2D {
     }
 
     pub fn set_obstacles(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
-        for i in 1..self.size.x as usize - 2 {
-            for j in 1..self.size.y as usize - 2 {
+        for i in 1..self.grid_size.x as usize - 2 {
+            for j in 1..self.grid_size.y as usize - 2 {
                 self.solid[(i, j)] = 1.0;
                 let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.spacing;
                 let sdf = obstacles.sdf(p.into());
