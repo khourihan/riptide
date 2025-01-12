@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 
 use glam::{UVec2, Vec2};
-use ndarray::{azip, Array0, Array1, Array2, Axis};
+use ndarray::{azip, Array0, Array1, Array2, ArrayView2, Axis};
 
 use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 
@@ -13,6 +13,7 @@ pub struct FlipFluid2D {
     ///
     /// Air in `0` kg/m³ and water is `1000` kg/m³.
     density: f32,
+    size: Vec2,
     grid_size: UVec2,
     /// Cell size.
     pub spacing: f32,
@@ -56,24 +57,23 @@ pub struct FlipFluid2D {
 impl FlipFluid2D {
     pub fn new(
         density: f32,
-        width: u32,
-        height: u32,
+        size: Vec2,
         spacing: f32,
         particle_radius: f32,
     ) -> Self {
-        let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
-        let h = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
+        let grid_size = (size / spacing).floor().as_uvec2() + 1;
+        let h = f32::max(size.x / grid_size.x as f32, size.y / grid_size.y as f32);
 
-        let u = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
-        let v = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
-        let weight_u = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
-        let weight_v = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
-        let u_star = Array2::from_elem((size.x as usize + 1, size.y as usize), 0.0);
-        let v_star = Array2::from_elem((size.x as usize, size.y as usize + 1), 0.0);
-        let pressure = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
-        let solid = Array2::from_elem((size.x as usize, size.y as usize), 1.0);
-        let cell_type = Array2::from_elem((size.x as usize, size.y as usize), CellType::Fluid);
-        let densities = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let u = Array2::from_elem((grid_size.x as usize + 1, grid_size.y as usize), 0.0);
+        let v = Array2::from_elem((grid_size.x as usize, grid_size.y as usize + 1), 0.0);
+        let weight_u = Array2::from_elem((grid_size.x as usize + 1, grid_size.y as usize), 0.0);
+        let weight_v = Array2::from_elem((grid_size.x as usize, grid_size.y as usize + 1), 0.0);
+        let u_star = Array2::from_elem((grid_size.x as usize + 1, grid_size.y as usize), 0.0);
+        let v_star = Array2::from_elem((grid_size.x as usize, grid_size.y as usize + 1), 0.0);
+        let pressure = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
+        let solid = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 1.0);
+        let cell_type = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), CellType::Fluid);
+        let densities = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
 
         let positions = Array1::from_vec(vec![]);
         let velocities = Array1::from_vec(vec![]);
@@ -81,8 +81,8 @@ impl FlipFluid2D {
 
         let particle_spacing = 2.2 * particle_radius;
         let particle_resolution = UVec2::new(
-            (width as f32 / particle_spacing).floor() as u32 + 1,
-            (height as f32 / particle_spacing).floor() as u32 + 1,
+            (size.x / particle_spacing).floor() as u32 + 1,
+            (size.y / particle_spacing).floor() as u32 + 1,
         );
 
         let cell_count = (particle_resolution.x * particle_resolution.y) as usize;
@@ -93,7 +93,8 @@ impl FlipFluid2D {
 
         Self {
             density,
-            grid_size: size,
+            size,
+            grid_size,
             spacing: h,
             rest_density: 0.0,
             particle_radius,
@@ -588,64 +589,34 @@ impl FlipFluid2D {
         }
     }
 
-    fn transfer_velocities_to_particles(&mut self, flip_ratio: f32) {
-        let h = self.spacing;
-        let h1 = h.recip();
-        let h2 = 0.5 * h;
+    fn transfer_velocities_to_particles(&mut self, alpha: f32) {
+        let nx = self.grid_size.x;
+        let ny = self.grid_size.y;
+        let h1 = self.spacing.recip();
 
-        for dim in 0..2 {
-            let delta = Vec2::new(
-                if dim == 0 { 0.0 } else { h2 },
-                if dim == 1 { 0.0 } else { h2 },
+        for i in 0..self.n_particles {
+            let p0 = self.positions[i];
+            let v0 = self.velocities[i];
+
+            let pi = (p0 * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.grid_size - 1);
+
+            let interp_u_star = Vec2::new(
+                get_bilerp_x(self.u_star.view(), p0, self.spacing, self.grid_size, self.size),
+                get_bilerp_y(self.v_star.view(), p0, self.spacing, self.grid_size, self.size),
             );
-            
-            let u = if dim == 0 { &mut self.u } else { &mut self.v };
-            let u_star = if dim == 0 { &mut self.u_star } else { &mut self.v_star };
 
-            for i in 0..self.n_particles {
-                let p = self.positions[i];
-                let pi = p.clamp(Vec2::splat(h), (self.grid_size - 1).as_vec2() * h);
+            let interp_u_n1 = Vec2::new(
+                get_bilerp_x(self.u.view(), p0, self.spacing, self.grid_size, self.size),
+                get_bilerp_y(self.v.view(), p0, self.spacing, self.grid_size, self.size),
+            );
 
-                let p0 = ((pi - delta) * h1).floor().as_uvec2().min(self.grid_size - 2);
-                let t = ((pi - delta) - p0.as_vec2() * h) * h1;
-                let p1 = (p0 + 1).min(self.grid_size - 2);
-                let s = 1.0 - t;
+            let u_update = if pi.x == 0 || pi.x == nx - 1 || pi.y == 0 || pi.y == ny - 1 {
+                interp_u_n1 + (v0 - interp_u_star) * (1.0 - f32::min(1.0, 2.0 * alpha))
+            } else {
+                interp_u_n1 + (v0 - interp_u_star) * (1.0 - alpha)
+            };
 
-                let i0 = (p0.x as usize, p0.y as usize);
-                let i1 = (p1.x as usize, p0.y as usize);
-                let i2 = (p1.x as usize, p1.y as usize);
-                let i3 = (p0.x as usize, p1.y as usize);
-
-                let d0 = s.x * s.y;
-                let d1 = t.x * s.y;
-                let d2 = t.x * t.y;
-                let d3 = s.x * t.y;
-
-                let offset = if dim == 0 { (1, 0) } else { (0, 1) };
-                let valid0 = self.cell_type[i0] != CellType::Air || self.cell_type[(i0.0 - offset.0, i0.1 - offset.1)] != CellType::Air;
-                let valid1 = self.cell_type[i1] != CellType::Air || self.cell_type[(i1.0 - offset.0, i1.1 - offset.1)] != CellType::Air;
-                let valid2 = self.cell_type[i2] != CellType::Air || self.cell_type[(i2.0 - offset.0, i2.1 - offset.1)] != CellType::Air;
-                let valid3 = self.cell_type[i3] != CellType::Air || self.cell_type[(i3.0 - offset.0, i3.1 - offset.1)] != CellType::Air;
-                let v0 = if valid0 { 1.0 } else { 0.0 };
-                let v1 = if valid1 { 1.0 } else { 0.0 };
-                let v2 = if valid2 { 1.0 } else { 0.0 };
-                let v3 = if valid3 { 1.0 } else { 0.0 };
-
-                let v = self.velocities[i][dim];
-                let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3;
-
-                if d > 0.0 {
-                    let picv = (v0 * d0 * u[i0] + v1 * d1 * u[i1] 
-                        + v2 * d2 * u[i2] + v3 * d3 * u[i3]) / d;
-                    let corr = (v0 * d0 * (u[i0] - u_star[i0]) 
-                        + v1 * d1 * (u[i1] - u_star[i1])
-                        + v2 * d2 * (u[i2] - u_star[i2])
-                        + v3 * d3 * (u[i3] - u_star[i3])) / d;
-                    let flipv = v + corr;
-
-                    self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
-                }
-            }
+            self.velocities[i] = u_update;
         }
     }
 
@@ -783,7 +754,7 @@ impl Default for FlipFluid2DParams {
         Self {
             num_substeps: 2,
             gravity: Vec2::new(0.0, -9.81),
-            flip_ratio: 0.9,
+            flip_ratio: 0.1,
             num_pressure_iters: 100,
             num_particle_iters: 2,
             over_relaxation: 1.9,
@@ -818,5 +789,107 @@ impl Fluid<2> for FlipFluid2D {
 
     fn particle_radius(&self) -> f32 {
         self.particle_radius
+    }
+}
+
+fn get_bilerp_x(
+    vals: ArrayView2<f32>,
+    p: Vec2,
+    spacing: f32,
+    grid_size: UVec2,
+    size: Vec2,
+) -> f32 {
+    let pi = (p / spacing).floor().as_uvec2().clamp(UVec2::ZERO, grid_size - 1);
+
+    if p.y >= 0.0 && p.y <= size.y - spacing {
+        let ix1 = pi.x;
+        let ix2 = ix1 + 1;
+        let (iy1, iy2) = if p.y > pi.y as f32 * spacing {
+            (pi.y, pi.y.min(grid_size.y - 2) + 1)
+        } else {
+            (pi.y.max(1) - 1, pi.y)
+        };
+
+        let x1 = (ix1 as f32 - 0.5) * spacing;
+        let x2 = (ix2 as f32 - 0.5) * spacing;
+        let y1 = iy1 as f32 * spacing;
+        let y2 = iy2 as f32 * spacing;
+
+        let u00 = vals[(ix1 as usize, iy1 as usize)];
+        let u01 = vals[(ix1 as usize, iy2 as usize)];
+        let u10 = vals[(ix2 as usize, iy1 as usize)];
+        let u11 = vals[(ix2 as usize, iy2 as usize)];
+
+        ((u00 * (x2 - p.x) * (y2 - p.y))
+            + u10 * (p.x - x1) * (y2 - p.y)
+            + u01 * (x2 - p.x) * (p.y - y1)
+            + u11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+    } else if p.y < 0.0 {
+        let ix1 = pi.x;
+        let ix2 = ix1 + 1;
+        let x1 = (ix1 as f32 - 0.5) * spacing;
+        let x2 = (ix2 as f32 - 0.5) * spacing;
+        let u00 = vals[(ix1 as usize, 0)];
+        let u10 = vals[(ix2 as usize, 0)];
+        u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+    } else {
+        let ix1 = pi.x;
+        let ix2 = ix1 + 1;
+        let x1 = (ix1 as f32 - 0.5) * spacing;
+        let x2 = (ix2 as f32 - 0.5) * spacing;
+        let u00 = vals[(ix1 as usize, grid_size.y as usize - 1)];
+        let u10 = vals[(ix2 as usize, grid_size.y as usize - 1)];
+        u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+    }
+}
+
+fn get_bilerp_y(
+    vals: ArrayView2<f32>,
+    p: Vec2,
+    spacing: f32,
+    grid_size: UVec2,
+    size: Vec2,
+) -> f32 {
+    let pi = (p / spacing).floor().as_uvec2().clamp(UVec2::ZERO, grid_size - 1);
+
+    if p.x >= 0.0 && p.x <= size.x - spacing {
+        let iy1 = pi.y;
+        let iy2 = iy1 + 1;
+        let (ix1, ix2) = if p.x > pi.x as f32 * spacing {
+            (pi.x, pi.x.min(grid_size.x - 2) + 1)
+        } else {
+            (pi.x.max(1) - 1, pi.x)
+        };
+
+        let y1 = (iy1 as f32 - 0.5) * spacing;
+        let y2 = (iy2 as f32 - 0.5) * spacing;
+        let x1 = ix1 as f32 * spacing;
+        let x2 = ix2 as f32 * spacing;
+
+        let v00 = vals[(ix1 as usize, iy1 as usize)];
+        let v01 = vals[(ix1 as usize, iy2 as usize)];
+        let v10 = vals[(ix2 as usize, iy1 as usize)];
+        let v11 = vals[(ix2 as usize, iy2 as usize)];
+
+        ((v00 * (x2 - p.x) * (y2 - p.y))
+            + v10 * (p.x - x1) * (y2 - p.y)
+            + v01 * (x2 - p.x) * (p.y - y1)
+            + v11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+    } else if p.x < 0.0 {
+        let iy1 = pi.y;
+        let iy2 = iy1 + 1;
+        let y1 = (iy1 as f32 - 0.5) * spacing;
+        let y2 = (iy2 as f32 - 0.5) * spacing;
+        let v00 = vals[(0, iy1 as usize)];
+        let v10 = vals[(0, iy2 as usize)];
+        v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+    } else {
+        let iy1 = pi.y;
+        let iy2 = iy1 + 1;
+        let y1 = (iy1 as f32 - 0.5) * spacing;
+        let y2 = (iy2 as f32 - 0.5) * spacing;
+        let v00 = vals[(grid_size.x as usize - 1, iy1 as usize)];
+        let v10 = vals[(grid_size.x as usize - 1, iy2 as usize)];
+        v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
     }
 }

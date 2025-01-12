@@ -15,7 +15,7 @@ pub fn run_d2(
     let spacing = size.y / resolution as f32;
     let particle_radius = particle_radius * spacing;
 
-    let fluid = FlipFluid2D::new(1000.0, size.x as u32, size.y as u32, spacing, particle_radius);
+    let fluid = FlipFluid2D::new(1000.0, size, spacing, particle_radius);
     let params = FlipFluid2DParams::default();
 
     let mut scene = Scene::new(fluid, params, [size.x, size.y]);
