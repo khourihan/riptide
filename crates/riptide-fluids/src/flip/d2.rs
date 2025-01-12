@@ -35,8 +35,8 @@ pub struct FlipFluid2D {
     v_star: Array2<f32>,
     /// Pressure of the grid.
     pressure: Array2<f32>,
-    /// Solid grid cells. `0.0` for completely solid and `1.0` for not solid.
-    solid: Array2<f32>,
+    /// Solid grid cells. `true` for completely solid and `false` for not solid.
+    solid: Array2<bool>,
     /// Grid cell types (`Fluid`, `Solid` or `Air`).
     cell_type: Array2<CellType>,
     /// Grid densities.
@@ -71,7 +71,7 @@ impl FlipFluid2D {
         let u_star = Array2::from_elem((grid_size.x as usize + 1, grid_size.y as usize), 0.0);
         let v_star = Array2::from_elem((grid_size.x as usize, grid_size.y as usize + 1), 0.0);
         let pressure = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
-        let solid = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 1.0);
+        let solid = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), false);
         let cell_type = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), CellType::Fluid);
         let densities = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
 
@@ -128,7 +128,7 @@ impl FlipFluid2D {
         self.n_particles += 1;
     }
 
-    pub fn set_solid(&mut self, i: usize, j: usize, v: f32) {
+    pub fn set_solid(&mut self, i: usize, j: usize, v: bool) {
         self.solid[(i, j)] = v;
     }
 
@@ -335,7 +335,7 @@ impl FlipFluid2D {
         let coeff = 315.0 / (64.0 * PI * h4 * h4 * h);
 
         azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
-            *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
+            *cell_type = if s { CellType::Solid } else { CellType::Air };
         });
 
         for i in 0..self.n_particles {
@@ -640,10 +640,10 @@ impl FlipFluid2D {
                     let bottom = (i, j - 1);
                     let top = (i, j + 1);
 
-                    let sx0 = self.solid[left];
-                    let sx1 = self.solid[right];
-                    let sy0 = self.solid[bottom];
-                    let sy1 = self.solid[top];
+                    let sx0 = if self.solid[left] { 0.0 } else { 1.0 };
+                    let sx1 = if self.solid[right] { 0.0 } else { 1.0 };
+                    let sy0 = if self.solid[bottom] { 0.0 } else { 1.0 };
+                    let sy1 = if self.solid[top] { 0.0 } else { 1.0 };
                     let s = sx0 + sx1 + sy0 + sy1;
 
                     if s == 0.0 {
@@ -696,16 +696,16 @@ impl FlipFluid2D {
     }
 
     pub fn set_obstacles(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
-        for i in 1..self.grid_size.x as usize - 2 {
-            for j in 1..self.grid_size.y as usize - 2 {
-                self.solid[(i, j)] = 1.0;
+        for i in 1..self.grid_size.x as usize - 1 {
+            for j in 1..self.grid_size.y as usize - 1 {
+                self.solid[(i, j)] = false;
                 let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.spacing;
                 let sdf = obstacles.sdf(p.into());
 
                 if sdf.distance < 0.0 {
                     // TODO: add velocity of obstacle to this.
                     let v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
-                    self.solid[(i, j)] = 0.0;
+                    self.solid[(i, j)] = true;
                     self.u[(i, j)] = v.x;
                     self.v[(i, j)] = v.y;
                     self.u[(i + 1, j)] = v.x;
