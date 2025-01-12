@@ -22,11 +22,14 @@ pub struct FlipFluid2D {
     particle_resolution: UVec2,
 
     /// Grid velocities.
-    uvs: Array2<Vec2>,
+    u: Array2<f32>,
+    v: Array2<f32>,
     /// Grid velocity deltas.
-    dudvs: Array2<Vec2>,
+    weight_u: Array2<f32>,
+    weight_v: Array2<f32>,
     /// Previous grid velocities.
-    prev_uvs: Array2<Vec2>,
+    u_star: Array2<f32>,
+    v_star: Array2<f32>,
     /// Pressure of the grid.
     pressure: Array2<f32>,
     /// Solid grid cells. `0.0` for completely solid and `1.0` for not solid.
@@ -59,9 +62,12 @@ impl FlipFluid2D {
         let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
         let h = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
 
-        let uvs = Array2::from_elem((size.x as usize, size.y as usize), Vec2::ZERO);
-        let dudvs = Array2::from_elem((size.x as usize, size.y as usize), Vec2::ZERO);
-        let prev_uvs = Array2::from_elem((size.x as usize, size.y as usize), Vec2::ZERO);
+        let u = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let v = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let weight_u = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let weight_v = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let u_star = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
+        let v_star = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
         let pressure = Array2::from_elem((size.x as usize, size.y as usize), 0.0);
         let solid = Array2::from_elem((size.x as usize, size.y as usize), 1.0);
         let cell_type = Array2::from_elem((size.x as usize, size.y as usize), CellType::Fluid);
@@ -92,9 +98,12 @@ impl FlipFluid2D {
             particle_spacing,
             n_particles: 0,
             particle_resolution,
-            uvs,
-            dudvs,
-            prev_uvs,
+            u,
+            v,
+            weight_u,
+            weight_v,
+            u_star,
+            v_star,
             pressure,
             solid,
             cell_type,
@@ -106,67 +115,6 @@ impl FlipFluid2D {
             roughness,
             cell_particle_indices,
         }
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32, spacing: f32) {
-        let size = UVec2::new((width as f32 / spacing).floor() as u32 + 1, (height as f32 / spacing).floor() as u32 + 1);
-        self.spacing = f32::max(width as f32 / size.x as f32, height as f32 / size.y as f32);
-
-        match size.x.cmp(&self.size.x) {
-            std::cmp::Ordering::Greater => {
-                let _ = self.uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-                let _ = self.dudvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-                let _ = self.prev_uvs.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), Vec2::ZERO).view());
-                let _ = self.pressure.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
-                let _ = self.solid.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 1.0).view());
-                let _ = self.cell_type.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), CellType::Fluid).view());
-                let _ = self.densities.append(Axis(0), Array2::from_elem(((size.x - self.size.x) as usize, self.size.y as usize), 0.0).view());
-            },
-            std::cmp::Ordering::Less => {
-                for _ in 0..(self.size.x - size.x) {
-                    let i = self.uvs.len_of(Axis(0)) - 1;
-                    self.uvs.remove_index(Axis(0), i);
-                    self.dudvs.remove_index(Axis(0), i);
-                    self.prev_uvs.remove_index(Axis(0), i);
-                    self.pressure.remove_index(Axis(0), i);
-                    self.solid.remove_index(Axis(0), i);
-                    self.cell_type.remove_index(Axis(0), i);
-                    self.densities.remove_index(Axis(0), i);
-                }
-            },
-            std::cmp::Ordering::Equal => (),
-        }
-
-        match size.y.cmp(&self.size.y) {
-            std::cmp::Ordering::Greater => {
-                let _ = self.uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-                let _ = self.dudvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-                let _ = self.prev_uvs.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), Vec2::ZERO).view());
-                let _ = self.pressure.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
-                let _ = self.solid.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 1.0).view());
-                let _ = self.cell_type.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), CellType::Fluid).view());
-                let _ = self.densities.append(Axis(1), Array2::from_elem((size.x as usize, (size.y - self.size.y) as usize), 0.0).view());
-            },
-            std::cmp::Ordering::Less => {
-                for _ in 0..(self.size.y - size.y) {
-                    let i = self.uvs.len_of(Axis(1)) - 1;
-                    self.uvs.remove_index(Axis(1), i);
-                    self.dudvs.remove_index(Axis(1), i);
-                    self.prev_uvs.remove_index(Axis(1), i);
-                    self.pressure.remove_index(Axis(1), i);
-                    self.solid.remove_index(Axis(1), i);
-                    self.cell_type.remove_index(Axis(1), i);
-                    self.densities.remove_index(Axis(1), i);
-                }
-            },
-            std::cmp::Ordering::Equal => (),
-        }
-
-        self.size = size;
-        self.particle_resolution = UVec2::new(
-            (width as f32 / self.particle_spacing).floor() as u32 + 1,
-            (height as f32 / self.particle_spacing).floor() as u32 + 1,
-        );
     }
 
     pub fn insert_particle(&mut self, pos: Vec2) {
@@ -373,9 +321,12 @@ impl FlipFluid2D {
         let h1 = h.recip();
         let h2 = 0.5 * h;
 
-        self.prev_uvs.assign(&self.uvs);
-        self.dudvs.fill(Vec2::ZERO);
-        self.uvs.fill(Vec2::ZERO);
+        self.u_star.assign(&self.u);
+        self.v_star.assign(&self.v);
+        self.weight_u.fill(0.0);
+        self.weight_v.fill(0.0);
+        self.u.fill(0.0);
+        self.v.fill(0.0);
 
         azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
             *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
@@ -394,6 +345,9 @@ impl FlipFluid2D {
                 if dim == 0 { 0.0 } else { h2 },
                 if dim == 1 { 0.0 } else { h2 },
             );
+
+            let u = if dim == 0 { &mut self.u } else { &mut self.v };
+            let weight = if dim == 0 { &mut self.weight_u } else { &mut self.weight_v };
 
             for i in 0..self.n_particles {
                 let p = self.positions[i];
@@ -415,32 +369,32 @@ impl FlipFluid2D {
                 let d3 = s.x * t.y;
 
                 let v = self.velocities[i][dim];
-                self.uvs[i0][dim] += v * d0;
-                self.uvs[i1][dim] += v * d1;
-                self.uvs[i2][dim] += v * d2;
-                self.uvs[i3][dim] += v * d3;
-                self.dudvs[i0][dim] += d0;
-                self.dudvs[i1][dim] += d1;
-                self.dudvs[i2][dim] += d2;
-                self.dudvs[i3][dim] += d3;
+                u[i0] += v * d0;
+                u[i1] += v * d1;
+                u[i2] += v * d2;
+                u[i3] += v * d3;
+                weight[i0] += d0;
+                weight[i1] += d1;
+                weight[i2] += d2;
+                weight[i3] += d3;
             }
 
-            azip!((uv in &mut self.uvs, &dudv in &self.dudvs) {
-                if dudv[dim] > 0.0 {
-                    uv[dim] /= dudv[dim];
+            azip!((uv in u, w in weight) {
+                if *w > 0.0 {
+                    *uv /= *w;
                 }
             });
+        }
 
-            for i in 0..self.size.x as usize {
-                for j in 0..self.size.y as usize {
-                    let solid = self.cell_type[(i, j)] == CellType::Solid;
+        for i in 0..self.size.x as usize {
+            for j in 0..self.size.y as usize {
+                let solid = self.cell_type[(i, j)] == CellType::Solid;
 
-                    if solid || (i > 0 && self.cell_type[(i - 1, j)] == CellType::Solid) {
-                        self.uvs[(i, j)].x = self.prev_uvs[(i, j)].x;
-                    }
-                    if solid || (j > 0 && self.cell_type[(i, j - 1)] == CellType::Solid) {
-                        self.uvs[(i, j)].y = self.prev_uvs[(i, j)].y;
-                    }
+                if solid || (i > 0 && self.cell_type[(i - 1, j)] == CellType::Solid) {
+                    self.u[(i, j)] = self.u_star[(i, j)];
+                }
+                if solid || (j > 0 && self.cell_type[(i, j - 1)] == CellType::Solid) {
+                    self.v[(i, j)] = self.v_star[(i, j)];
                 }
             }
         }
@@ -456,6 +410,9 @@ impl FlipFluid2D {
                 if dim == 0 { 0.0 } else { h2 },
                 if dim == 1 { 0.0 } else { h2 },
             );
+            
+            let u = if dim == 0 { &mut self.u } else { &mut self.v };
+            let u_star = if dim == 0 { &mut self.u_star } else { &mut self.v_star };
 
             for i in 0..self.n_particles {
                 let p = self.positions[i];
@@ -490,12 +447,12 @@ impl FlipFluid2D {
                 let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3;
 
                 if d > 0.0 {
-                    let picv = (v0 * d0 * self.uvs[i0][dim] + v1 * d1 * self.uvs[i1][dim] 
-                        + v2 * d2 * self.uvs[i2][dim] + v3 * d3 * self.uvs[i3][dim]) / d;
-                    let corr = (v0 * d0 * (self.uvs[i0][dim] - self.prev_uvs[i0][dim]) 
-                        + v1 * d1 * (self.uvs[i1][dim] - self.prev_uvs[i1][dim])
-                        + v2 * d2 * (self.uvs[i2][dim] - self.prev_uvs[i2][dim])
-                        + v3 * d3 * (self.uvs[i3][dim] - self.prev_uvs[i3][dim])) / d;
+                    let picv = (v0 * d0 * u[i0] + v1 * d1 * u[i1] 
+                        + v2 * d2 * u[i2] + v3 * d3 * u[i3]) / d;
+                    let corr = (v0 * d0 * (u[i0] - u_star[i0]) 
+                        + v1 * d1 * (u[i1] - u_star[i1])
+                        + v2 * d2 * (u[i2] - u_star[i2])
+                        + v3 * d3 * (u[i3] - u_star[i3])) / d;
                     let flipv = v + corr;
 
                     self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
@@ -506,7 +463,8 @@ impl FlipFluid2D {
 
     fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
         self.pressure.fill(0.0);
-        self.prev_uvs.assign(&self.uvs);
+        self.u_star.assign(&self.u);
+        self.v_star.assign(&self.v);
 
         let cp = self.density * self.spacing / dt;
 
@@ -533,8 +491,8 @@ impl FlipFluid2D {
                         continue;
                     }
 
-                    let mut div = self.uvs[right].x - self.uvs[center].x
-                        + self.uvs[top].y - self.uvs[center].y;
+                    let mut div = self.u[right] - self.u[center]
+                        + self.v[top] - self.v[center];
 
                     if self.rest_density > 0.0 && compensate_drift {
                         let k = 1.0;
@@ -548,10 +506,10 @@ impl FlipFluid2D {
                     p *= over_relaxation;
                     self.pressure[center] += cp * p;
 
-                    self.uvs[center].x -= sx0 * p;
-                    self.uvs[right].x += sx1 * p;
-                    self.uvs[center].y -= sy0 * p;
-                    self.uvs[top].y += sy1 * p;
+                    self.u[center] -= sx0 * p;
+                    self.u[right] += sx1 * p;
+                    self.v[center] -= sy0 * p;
+                    self.v[top] += sy1 * p;
                 }
             }
         }
@@ -589,9 +547,10 @@ impl FlipFluid2D {
                     // TODO: add velocity of obstacle to this.
                     let v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
                     self.solid[(i, j)] = 0.0;
-                    self.uvs[(i, j)] = v;
-                    self.uvs[(i + 1, j)].x = v.x;
-                    self.uvs[(i, j + 1)].y = v.y;
+                    self.u[(i, j)] = v.x;
+                    self.v[(i, j)] = v.y;
+                    self.u[(i + 1, j)] = v.x;
+                    self.v[(i, j + 1)] = v.y;
                 }
             }
         }
