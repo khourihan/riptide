@@ -2,7 +2,7 @@ use std::io::Write;
 
 use encode::{EncodingError, FluidFrameEncoder};
 use glam::{Vec2, Vec3};
-use riptide_fluids::flip::{d2::FlipFluid2D, d3::FlipFluid3D};
+use riptide_fluids::flip::{flip_2d::FlipFluid2D, flip_3d::FlipFluid3D};
 
 pub mod encode;
 pub mod decode;
@@ -15,7 +15,7 @@ pub trait EncodeFluid {
 
 impl EncodeFluid for FlipFluid2D {
     fn encode_state<W: std::io::Write>(&self, encoder: &mut FluidFrameEncoder<W>) -> Result<(), EncodingError> {
-        let delta = self.spacing;
+        let delta = self.spacing();
 
         encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
         encoder.encode_section(self.positions.len(), self.positions.iter().map(|&p| {

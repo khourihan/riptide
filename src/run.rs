@@ -1,7 +1,7 @@
 use glam::{Vec2, Vec3};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
-use riptide_fluids::{flip::{d2::{FlipFluid2D, FlipFluid2DParams}, d3::{FlipFluid3D, FlipFluid3DParams}}, obstacle::circle::Circle, scene::Scene};
+use riptide_fluids::{flip::{flip_2d::{FlipFluid2D, FlipFluid2DParams}, flip_3d::{FlipFluid3D, FlipFluid3DParams}}, obstacle::circle::Circle, scene::Scene};
 use riptide_io::encode::FluidDataEncoder;
 
 pub fn run_d2(
