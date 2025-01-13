@@ -35,17 +35,6 @@ pub fn run_d2(
         }
     }
 
-    let grid_size = scene.fluid.size();
-    for i in 0..grid_size.x {
-        for j in 0..grid_size.y {
-            let mut s = false;
-            if i == 0 || i == grid_size.x - 1 || j == 0 || j == grid_size.x - 1 {
-                s = true;
-            }
-            scene.fluid.set_solid(i as usize, j as usize, s);
-        }
-    }
-
     let obstacle_r = 2.0;
     let mut circle = Circle::new(Vec2::new(size.x / 2.0 + obstacle_r, size.y / 2.0), 0.25);
     let circle_id = scene.add_obstacle(circle);

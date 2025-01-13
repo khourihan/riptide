@@ -71,7 +71,7 @@ impl FlipFluid2D {
         let u_star = Array2::from_elem((grid_size.x as usize + 1, grid_size.y as usize), 0.0);
         let v_star = Array2::from_elem((grid_size.x as usize, grid_size.y as usize + 1), 0.0);
         let pressure = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
-        let solid = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), false);
+        let mut solid = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), false);
         let cell_type = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), CellType::Fluid);
         let densities = Array2::from_elem((grid_size.x as usize, grid_size.y as usize), 0.0);
 
@@ -90,6 +90,18 @@ impl FlipFluid2D {
         let first_cell_particle = Array1::from_elem(cell_count + 1, 0);
 
         let cell_particle_indices = Array1::from_vec(vec![]);
+
+        let nx = grid_size.x as usize;
+        let ny = grid_size.y as usize;
+        for i in 0..grid_size.x as usize {
+            solid[(i, 0)] = true;
+            solid[(i, ny - 1)] = true;
+        }
+
+        for j in 0..grid_size.y as usize {
+            solid[(0, j)] = true;
+            solid[(nx - 1, j)] = true;
+        }
 
         Self {
             density,
@@ -151,7 +163,15 @@ impl FlipFluid2D {
         )
     }
 
-    fn integrate_particles(&mut self, dt: f32, gravity: Vec2) {
+    fn integrate_particles(&mut self, dt: f32, gravity: Vec2, obstacles: &ObstacleSet<2>) {
+        azip!((p in &self.positions, v in &mut self.velocities) {
+            let sdf = obstacles.sdf((*p).into());
+            if sdf.distance < 0.0 {
+                // TODO: add velocity of obstacle to this.
+                *v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
+            }
+        });
+
         self.velocities.map_inplace(|v| *v += dt * gravity);
 
         azip!((p in &mut self.positions, vel in &self.velocities) {
@@ -160,8 +180,6 @@ impl FlipFluid2D {
     }
 
     fn push_particles_apart(&mut self, num_iters: usize) {
-        const ROUGHNESS_DIFFUSION: f32 = 0.001;
-
         self.cell_particle_count.fill(0);
         self.first_cell_particle.fill(0);
 
@@ -225,12 +243,6 @@ impl FlipFluid2D {
 
                             self.positions[i] -= delta;
                             self.positions[id] += delta;
-
-                            let r0 = self.roughness[i];
-                            let r1 = self.roughness[id];
-                            let rough = 0.5 * (r0 + r1);
-                            self.roughness[i] = r0 + (rough - r0) * ROUGHNESS_DIFFUSION;
-                            self.roughness[id] = r1 + (rough - r1) * ROUGHNESS_DIFFUSION;
                         }
                     }
                 }
@@ -238,16 +250,11 @@ impl FlipFluid2D {
         }
     }
 
-    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
-        let (min, max) = self.bounds();
+    fn handle_particle_collisions(&mut self) {
+        let min = Vec2::splat(self.spacing + self.particle_radius);
+        let max = self.size - min;
 
         azip!((p in &mut self.positions, v in &mut self.velocities) {
-            let sdf = obstacles.sdf((*p).into());
-            if sdf.distance < 0.0 {
-                // TODO: add velocity of obstacle to this.
-                *v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
-            }
-
             if p.x < min.x {
                 p.x = min.x;
                 v.x = 0.0;
@@ -622,36 +629,30 @@ impl FlipFluid2D {
 
     fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
         self.pressure.fill(0.0);
-        self.u_star.assign(&self.u);
-        self.v_star.assign(&self.v);
 
+        let nx = self.grid_size.x as usize;
+        let ny = self.grid_size.y as usize;
         let cp = self.density * self.spacing / dt;
 
         for _iter in 0..num_iters {
-            for i in 1..self.grid_size.x as usize - 1 {
-                for j in 1..self.grid_size.y as usize - 1 {
+            for i in 1..nx - 1 {
+                for j in 1..ny - 1 {
                     if self.cell_type[(i, j)] != CellType::Fluid {
                         continue;
                     }
 
-                    let center = (i, j);
-                    let left = (i - 1, j);
-                    let right = (i + 1, j);
-                    let bottom = (i, j - 1);
-                    let top = (i, j + 1);
-
-                    let sx0 = if self.solid[left] { 0.0 } else { 1.0 };
-                    let sx1 = if self.solid[right] { 0.0 } else { 1.0 };
-                    let sy0 = if self.solid[bottom] { 0.0 } else { 1.0 };
-                    let sy1 = if self.solid[top] { 0.0 } else { 1.0 };
+                    let sx0 = if self.solid[(i - 1, j)] { 0.0 } else { 1.0 };
+                    let sx1 = if self.solid[(i + 1, j)] { 0.0 } else { 1.0 };
+                    let sy0 = if self.solid[(i, j - 1)] { 0.0 } else { 1.0 };
+                    let sy1 = if self.solid[(i, j + 1)] { 0.0 } else { 1.0 };
                     let s = sx0 + sx1 + sy0 + sy1;
 
                     if s == 0.0 {
                         continue;
                     }
 
-                    let mut div = self.u[right] - self.u[center]
-                        + self.v[top] - self.v[center];
+                    let mut div = self.u[(i + 1, j)] - self.u[(i, j)]
+                        + self.v[(i, j + 1)] - self.v[(i, j)];
 
                     if self.rest_density > 0.0 && compensate_drift {
                         let k = 1.0;
@@ -663,33 +664,12 @@ impl FlipFluid2D {
 
                     let mut p = -div / s;
                     p *= over_relaxation;
-                    self.pressure[center] += cp * p;
+                    self.pressure[(i, j)] += cp * p;
 
-                    self.u[center] -= sx0 * p;
-                    self.u[right] += sx1 * p;
-                    self.v[center] -= sy0 * p;
-                    self.v[top] += sy1 * p;
-                }
-            }
-        }
-    }
-
-    fn update_roughness(&mut self) {
-        let h1 = self.spacing.recip();
-        let d0 = self.rest_density;
-
-        for i in 0..self.n_particles {
-            let s = 0.01;
-            let p = self.positions[i];
-            let pi = (p * h1).floor().as_uvec2().clamp(UVec2::ONE, self.grid_size - 1);
-
-            self.roughness[i] = (self.roughness[i] - s).clamp(0.0, 1.0);
-
-            if d0 > 0.0 {
-                let rel_density = self.densities[(pi.x as usize, pi.y as usize)] / d0;
-                if rel_density < 0.7 {
-                    let s = 0.8;
-                    self.roughness[i] = s;
+                    self.u[(i, j)] -= sx0 * p;
+                    self.u[(i + 1, j)] += sx1 * p;
+                    self.v[(i, j)] -= sy0 * p;
+                    self.v[(i, j + 1)] += sy1 * p;
                 }
             }
         }
@@ -719,9 +699,9 @@ impl FlipFluid2D {
         let h1 = self.spacing.recip();
 
         let x0 = (p.x * h1).floor() as usize;
-        let x1 = if (p.x * h1).fract() > 0.5 { x0 + 1 } else { x0 - 1 };
+        let x1 = if (p.x * h1).fract() > 0.5 { x0.min(self.grid_size.x as usize - 2) + 1 } else { x0.max(1) - 1 };
         let y0 = (p.y * h1).floor() as usize;
-        let y1 = if (p.y * h1).fract() > 0.5 { y0 + 1 } else { y0 - 1 };
+        let y1 = if (p.y * h1).fract() > 0.5 { y0.min(self.grid_size.y as usize - 2) + 1 } else { y0.max(1) - 1 };
 
         let dx = (p.x * h1) - (x0 as f32 + 0.5);
         let dy = (p.y * h1) - (y0 as f32 + 0.5);
@@ -773,18 +753,25 @@ impl Fluid<2> for FlipFluid2D {
         self.set_obstacles(obstacles, dt);
 
         for _step in 0..params.num_substeps {
-            self.integrate_particles(sdt, params.gravity);
+            self.integrate_particles(sdt, params.gravity, obstacles);
+
             if params.separate_particles {
                 self.push_particles_apart(params.num_particle_iters);
             }
-            self.handle_particle_collisions(obstacles, sdt);
+
+            self.handle_particle_collisions();
+
             self.transfer_velocities_to_grid();
+
+            self.u_star.assign(&self.u);
+            self.v_star.assign(&self.v);
+
             self.update_particle_density();
+
             self.solve_incompressibility(params.num_pressure_iters, sdt, params.over_relaxation, params.compensate_drift);
+
             self.transfer_velocities_to_particles(params.flip_ratio);
         }
-
-        self.update_roughness();
     }
 
     fn particle_radius(&self) -> f32 {
