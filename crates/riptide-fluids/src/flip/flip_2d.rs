@@ -103,7 +103,7 @@ impl FlipFluid2D {
     }
 
     fn integrate_particles(&mut self, dt: f32, gravity: Vec2, obstacles: &ObstacleSet<2>) {
-        azip!((p in &self.positions, v in &mut self.velocities) {
+        self.positions.iter().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
             let sdf = obstacles.sdf((*p).into());
             if sdf.distance < 0.0 {
                 *v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
@@ -112,8 +112,8 @@ impl FlipFluid2D {
 
         self.velocities.iter_mut().for_each(|v| *v += dt * gravity);
 
-        azip!((p in &mut self.positions, vel in &self.velocities) {
-            *p += vel * dt;
+        self.positions.iter_mut().zip(self.velocities.iter()).for_each(|(p, v)| {
+            *p += v * dt;
         });
     }
 
@@ -192,7 +192,7 @@ impl FlipFluid2D {
         let min = Vec2::splat(self.mac.spacing + self.particle_radius);
         let max = self.mac.size - min;
 
-        azip!((p in &mut self.positions, v in &mut self.velocities) {
+        self.positions.iter_mut().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
             if p.x < min.x {
                 p.x = min.x;
                 v.x = 0.0;
@@ -546,20 +546,16 @@ impl FlipFluid2D {
 
             let pi = (p0 * h1).floor().as_uvec2().clamp(UVec2::ZERO, self.mac.grid_size - 1);
 
-            let interp_u_star = Vec2::new(
-                self.mac.get_bilerp_u_star(p0),
-                self.mac.get_bilerp_v_star(p0),
-            );
+            let (interp_u, interp_u_star) = self.mac.get_bilerp_u(p0);
+            let (interp_v, interp_v_star) = self.mac.get_bilerp_v(p0);
 
-            let interp_u_n1 = Vec2::new(
-                self.mac.get_bilerp_u(p0),
-                self.mac.get_bilerp_v(p0),
-            );
+            let interp_n1 = Vec2::new(interp_u, interp_v);
+            let interp_star = Vec2::new(interp_u_star, interp_v_star);
 
             let u_update = if pi.x == 0 || pi.x == nx - 1 || pi.y == 0 || pi.y == ny - 1 {
-                interp_u_n1 + (v0 - interp_u_star) * (1.0 - f32::min(1.0, 2.0 * alpha))
+                interp_n1 + (v0 - interp_star) * (1.0 - f32::min(1.0, 2.0 * alpha))
             } else {
-                interp_u_n1 + (v0 - interp_u_star) * (1.0 - alpha)
+                interp_n1 + (v0 - interp_star) * (1.0 - alpha)
             };
 
             self.velocities[i] = u_update;

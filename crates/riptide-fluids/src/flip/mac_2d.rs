@@ -92,23 +92,13 @@ impl MacGrid2D {
     }
 
     #[inline]
-    pub fn get_bilerp_u(&self, pos: Vec2) -> f32 {
-        get_bilerp_x(self.u.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
+    pub fn get_bilerp_u(&self, pos: Vec2) -> (f32, f32) {
+        get_bilerp_x(self.u.view(), self.u_star.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
     }
 
     #[inline]
-    pub fn get_bilerp_v(&self, pos: Vec2) -> f32 {
-        get_bilerp_y(self.v.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
-    }
-
-    #[inline]
-    pub fn get_bilerp_u_star(&self, pos: Vec2) -> f32 {
-        get_bilerp_x(self.u_star.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
-    }
-
-    #[inline]
-    pub fn get_bilerp_v_star(&self, pos: Vec2) -> f32 {
-        get_bilerp_y(self.v_star.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
+    pub fn get_bilerp_v(&self, pos: Vec2) -> (f32, f32) {
+        get_bilerp_y(self.v.view(), self.v_star.view(), pos, self.spacing, self.inv_spacing, self.grid_size, self.size)
     }
 
     #[inline]
@@ -119,13 +109,14 @@ impl MacGrid2D {
 }
 
 fn get_bilerp_x(
-    vals: ArrayView2<f32>,
+    g: ArrayView2<f32>,
+    g_star: ArrayView2<f32>,
     p: Vec2,
     spacing: f32,
     inv_spacing: f32,
     grid_size: UVec2,
     size: Vec2,
-) -> f32 {
+) -> (f32, f32) {
     let pi = (p * inv_spacing).floor().as_uvec2().clamp(UVec2::ZERO, grid_size - 1);
 
     if p.y >= 0.0 && p.y <= size.y - spacing {
@@ -142,42 +133,79 @@ fn get_bilerp_x(
         let y1 = iy1 as f32 * spacing;
         let y2 = iy2 as f32 * spacing;
 
-        let u00 = vals[(ix1 as usize, iy1 as usize)];
-        let u01 = vals[(ix1 as usize, iy2 as usize)];
-        let u10 = vals[(ix2 as usize, iy1 as usize)];
-        let u11 = vals[(ix2 as usize, iy2 as usize)];
+        (
+            {
+                let u00 = g[(ix1 as usize, iy1 as usize)];
+                let u01 = g[(ix1 as usize, iy2 as usize)];
+                let u10 = g[(ix2 as usize, iy1 as usize)];
+                let u11 = g[(ix2 as usize, iy2 as usize)];
 
-        ((u00 * (x2 - p.x) * (y2 - p.y))
-            + u10 * (p.x - x1) * (y2 - p.y)
-            + u01 * (x2 - p.x) * (p.y - y1)
-            + u11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+                ((u00 * (x2 - p.x) * (y2 - p.y))
+                    + u10 * (p.x - x1) * (y2 - p.y)
+                    + u01 * (x2 - p.x) * (p.y - y1)
+                    + u11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+
+            },
+            {
+                let u00 = g_star[(ix1 as usize, iy1 as usize)];
+                let u01 = g_star[(ix1 as usize, iy2 as usize)];
+                let u10 = g_star[(ix2 as usize, iy1 as usize)];
+                let u11 = g_star[(ix2 as usize, iy2 as usize)];
+
+                ((u00 * (x2 - p.x) * (y2 - p.y))
+                    + u10 * (p.x - x1) * (y2 - p.y)
+                    + u01 * (x2 - p.x) * (p.y - y1)
+                    + u11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+            }
+        )
     } else if p.y < 0.0 {
         let ix1 = pi.x;
         let ix2 = ix1 + 1;
         let x1 = (ix1 as f32 - 0.5) * spacing;
         let x2 = (ix2 as f32 - 0.5) * spacing;
-        let u00 = vals[(ix1 as usize, 0)];
-        let u10 = vals[(ix2 as usize, 0)];
-        u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+
+        (
+            {
+                let u00 = g[(ix1 as usize, 0)];
+                let u10 = g[(ix2 as usize, 0)];
+                u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+            },
+            {
+                let u00 = g_star[(ix1 as usize, 0)];
+                let u10 = g_star[(ix2 as usize, 0)];
+                u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+            }
+        )
     } else {
         let ix1 = pi.x;
         let ix2 = ix1 + 1;
         let x1 = (ix1 as f32 - 0.5) * spacing;
         let x2 = (ix2 as f32 - 0.5) * spacing;
-        let u00 = vals[(ix1 as usize, grid_size.y as usize - 1)];
-        let u10 = vals[(ix2 as usize, grid_size.y as usize - 1)];
-        u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+
+        (
+            {
+                let u00 = g[(ix1 as usize, grid_size.y as usize - 1)];
+                let u10 = g[(ix2 as usize, grid_size.y as usize - 1)];
+                u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+            },
+            {
+                let u00 = g_star[(ix1 as usize, grid_size.y as usize - 1)];
+                let u10 = g_star[(ix2 as usize, grid_size.y as usize - 1)];
+                u00 * (1.0 - (p.x - x1) / (x2 - x1)) + u10 * ((p.x - x1) / (x2 - x1))
+            }
+        )
     }
 }
 
 fn get_bilerp_y(
-    vals: ArrayView2<f32>,
+    g: ArrayView2<f32>,
+    g_star: ArrayView2<f32>,
     p: Vec2,
     spacing: f32,
     inv_spacing: f32,
     grid_size: UVec2,
     size: Vec2,
-) -> f32 {
+) -> (f32, f32) {
     let pi = (p * inv_spacing).floor().as_uvec2().clamp(UVec2::ZERO, grid_size - 1);
 
     if p.x >= 0.0 && p.x <= size.x - spacing {
@@ -194,30 +222,65 @@ fn get_bilerp_y(
         let x1 = ix1 as f32 * spacing;
         let x2 = ix2 as f32 * spacing;
 
-        let v00 = vals[(ix1 as usize, iy1 as usize)];
-        let v01 = vals[(ix1 as usize, iy2 as usize)];
-        let v10 = vals[(ix2 as usize, iy1 as usize)];
-        let v11 = vals[(ix2 as usize, iy2 as usize)];
+        (
+            {
+                let v00 = g[(ix1 as usize, iy1 as usize)];
+                let v01 = g[(ix1 as usize, iy2 as usize)];
+                let v10 = g[(ix2 as usize, iy1 as usize)];
+                let v11 = g[(ix2 as usize, iy2 as usize)];
 
-        ((v00 * (x2 - p.x) * (y2 - p.y))
-            + v10 * (p.x - x1) * (y2 - p.y)
-            + v01 * (x2 - p.x) * (p.y - y1)
-            + v11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+                ((v00 * (x2 - p.x) * (y2 - p.y))
+                    + v10 * (p.x - x1) * (y2 - p.y)
+                    + v01 * (x2 - p.x) * (p.y - y1)
+                    + v11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+            },
+            {
+                let v00 = g_star[(ix1 as usize, iy1 as usize)];
+                let v01 = g_star[(ix1 as usize, iy2 as usize)];
+                let v10 = g_star[(ix2 as usize, iy1 as usize)];
+                let v11 = g_star[(ix2 as usize, iy2 as usize)];
+
+                ((v00 * (x2 - p.x) * (y2 - p.y))
+                    + v10 * (p.x - x1) * (y2 - p.y)
+                    + v01 * (x2 - p.x) * (p.y - y1)
+                    + v11 * (p.x - x1) * (p.y - y1)) / ((x2 - x1) * (y2 - y1))
+            }
+        )
     } else if p.x < 0.0 {
         let iy1 = pi.y;
         let iy2 = iy1 + 1;
         let y1 = (iy1 as f32 - 0.5) * spacing;
         let y2 = (iy2 as f32 - 0.5) * spacing;
-        let v00 = vals[(0, iy1 as usize)];
-        let v10 = vals[(0, iy2 as usize)];
-        v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+
+        (
+            {
+                let v00 = g[(0, iy1 as usize)];
+                let v10 = g[(0, iy2 as usize)];
+                v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+            },
+            {
+                let v00 = g_star[(0, iy1 as usize)];
+                let v10 = g_star[(0, iy2 as usize)];
+                v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+            }
+        )
     } else {
         let iy1 = pi.y;
         let iy2 = iy1 + 1;
         let y1 = (iy1 as f32 - 0.5) * spacing;
         let y2 = (iy2 as f32 - 0.5) * spacing;
-        let v00 = vals[(grid_size.x as usize - 1, iy1 as usize)];
-        let v10 = vals[(grid_size.x as usize - 1, iy2 as usize)];
-        v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+
+        (
+            {
+                let v00 = g[(grid_size.x as usize - 1, iy1 as usize)];
+                let v10 = g[(grid_size.x as usize - 1, iy2 as usize)];
+                v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+            },
+            {
+                let v00 = g_star[(grid_size.x as usize - 1, iy1 as usize)];
+                let v10 = g_star[(grid_size.x as usize - 1, iy2 as usize)];
+                v00 * (1.0 - (p.y - y1) / (y2 - y1)) + v10 * ((p.y - y1) / (y2 - y1))
+            }
+        )
     }
 }
