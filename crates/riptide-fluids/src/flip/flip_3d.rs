@@ -1,196 +1,119 @@
+use std::f32::consts::PI;
+
 use glam::{UVec3, Vec3};
-use ndarray::{azip, Array0, Array1, Array3, Axis};
+use ndarray::azip;
 
 use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 
-use super::CellType;
+use super::{mac_3d::MacGrid3D, CellType};
 
 #[derive(Debug, Clone)]
 pub struct FlipFluid3D {
+    mac: MacGrid3D,
     /// The density of the fluid, in kg/m³.
     ///
-    /// Air in `0` kg/m³ and water is `1000` kg/m³.
+    /// Air in `1` kg/m³ (approximated as `0` kg/m³) and water is `1000` kg/m³.
     density: f32,
-    pub size: UVec3,
-    /// Cell size.
-    pub spacing: f32,
 
     rest_density: f32,
+    /// Radius of particles.
     particle_radius: f32,
+    /// Cell size of particle grid.
     particle_spacing: f32,
+    /// Total number of particles.
     n_particles: usize,
+    /// Resolution of particle grid.
     particle_resolution: UVec3,
 
-    /// Grid velocities.
-    uvws: Array3<Vec3>,
-    /// Grid velocity deltas.
-    dudvdws: Array3<Vec3>,
-    /// Previous grid velocities.
-    prev_uvws: Array3<Vec3>,
-    /// Pressure of the grid.
-    pressure: Array3<f32>,
-    /// Solid grid cells. `0.0` for completely solid and `1.0` for not solid.
-    solid: Array3<f32>,
-    /// Grid cell types (`Fluid`, `Solid` or `Air`).
-    cell_type: Array3<CellType>,
-    /// Grid densities.
-    pub densities: Array3<f32>,
-
-    cell_particle_count: Array1<usize>,
-    first_cell_particle: Array1<usize>,
+    /// Number of particles per cell of particle grid.
+    cell_particle_count: Vec<usize>,
+    first_cell_particle: Vec<usize>,
 
     /// Particle positions.
-    pub positions: Array1<Vec3>,
+    pub positions: Vec<Vec3>,
     /// Particle velocities.
-    velocities: Array1<Vec3>,
-    /// Fluid roughness approximation per particle.
-    roughness: Array1<f32>,
-    cell_particle_indices: Array1<usize>,
+    velocities: Vec<Vec3>,
+    cell_particle_indices: Vec<usize>,
 }
 
 impl FlipFluid3D {
     pub fn new(
         density: f32,
-        dimensions: UVec3,
+        size: Vec3,
         spacing: f32,
         particle_radius: f32,
     ) -> Self {
-        let size = (dimensions.as_vec3() / spacing).floor().as_uvec3() + 1;
-        let h = (dimensions.as_vec3() / size.as_vec3()).max_element();
-
-        let shape = (size.x as usize, size.y as usize, size.z as usize);
-        let uvs = Array3::from_elem(shape, Vec3::ZERO);
-        let dudvs = Array3::from_elem(shape, Vec3::ZERO);
-        let prev_uvs = Array3::from_elem(shape, Vec3::ZERO);
-        let pressure = Array3::from_elem(shape, 0.0);
-        let solid = Array3::from_elem(shape, 1.0);
-        let cell_type = Array3::from_elem(shape, CellType::Fluid);
-        let densities = Array3::from_elem(shape, 0.0);
-
-        let positions = Array1::from_vec(vec![]);
-        let velocities = Array1::from_vec(vec![]);
-        let roughness = Array1::from_vec(vec![]);
+        let positions = vec![];
+        let velocities = vec![];
 
         let particle_spacing = 2.2 * particle_radius;
-        let particle_resolution = (dimensions.as_vec3() / particle_spacing).floor().as_uvec3() + 1;
+        let particle_resolution = (size / particle_spacing).floor().as_uvec3() + 1;
 
         let cell_count = (particle_resolution.x * particle_resolution.y * particle_resolution.z) as usize;
-        let cell_particle_count = Array1::from_elem(cell_count, 0);
-        let first_cell_particle = Array1::from_elem(cell_count + 1, 0);
+        let cell_particle_count = vec![0; cell_count];
+        let first_cell_particle = vec![0; cell_count + 1];
 
-        let cell_particle_indices = Array1::from_vec(vec![]);
+        let cell_particle_indices = vec![];
 
         Self {
+            mac: MacGrid3D::new(size, spacing),
             density,
-            size,
-            spacing: h,
             rest_density: 0.0,
             particle_radius,
             particle_spacing,
             n_particles: 0,
             particle_resolution,
-            uvws: uvs,
-            dudvdws: dudvs,
-            prev_uvws: prev_uvs,
-            pressure,
-            solid,
-            cell_type,
-            densities,
             cell_particle_count,
             first_cell_particle,
             positions,
             velocities,
-            roughness,
             cell_particle_indices,
         }
     }
 
-    pub fn resize(&mut self, dimensions: UVec3, spacing: f32) {
-        let size = (dimensions.as_vec3() / spacing).floor().as_uvec3() + 1;
-        self.spacing = (dimensions.as_vec3() / size.as_vec3()).max_element();
-
-        for dim in 0..3 {
-            match size[dim].cmp(&self.size[dim]) {
-                std::cmp::Ordering::Greater => {
-                    let mut s = ndarray::Ix3(0, 0, 0);
-                    for i in 0..3 {
-                        s[i] = if i == dim {
-                            (size[dim] - self.size[dim]) as usize
-                        } else {
-                            self.size[dim] as usize
-                        }
-                    }
-
-                    let _ = self.uvws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
-                    let _ = self.dudvdws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
-                    let _ = self.prev_uvws.append(Axis(dim), Array3::from_elem(s, Vec3::ZERO).view());
-                    let _ = self.pressure.append(Axis(dim), Array3::from_elem(s, 0.0).view());
-                    let _ = self.solid.append(Axis(dim), Array3::from_elem(s, 1.0).view());
-                    let _ = self.cell_type.append(Axis(dim), Array3::from_elem(s, CellType::Fluid).view());
-                    let _ = self.densities.append(Axis(dim), Array3::from_elem(s, 0.0).view());
-                },
-                std::cmp::Ordering::Less => {
-                    for _ in 0..(self.size[dim] - size[dim]) {
-                        let i = self.uvws.len_of(Axis(dim)) - 1;
-                        self.uvws.remove_index(Axis(dim), i);
-                        self.dudvdws.remove_index(Axis(dim), i);
-                        self.prev_uvws.remove_index(Axis(dim), i);
-                        self.pressure.remove_index(Axis(dim), i);
-                        self.solid.remove_index(Axis(dim), i);
-                        self.cell_type.remove_index(Axis(dim), i);
-                        self.densities.remove_index(Axis(dim), i);
-                    }
-                },
-                std::cmp::Ordering::Equal => (),
-            }
-        }
-
-        self.size = size;
-        self.particle_resolution = (dimensions.as_vec3() / self.particle_spacing).floor().as_uvec3() + 1;
-    }
-
     pub fn insert_particle(&mut self, pos: Vec3) {
-        let _ = self.positions.push(Axis(0), Array0::from_elem((), pos).view());
-        let _ = self.velocities.push(Axis(0), Array0::from_elem((), Vec3::ZERO).view());
-        let _ = self.roughness.push(Axis(0), Array0::from_elem((), 0.0).view());
-        let _ = self.cell_particle_indices.push(Axis(0), Array0::from_elem((), 0).view());
+        self.positions.push(pos);
+        self.velocities.push(Vec3::ZERO);
+        self.cell_particle_indices.push(0);
         self.n_particles += 1;
     }
 
-    pub fn set_solid(&mut self, i: usize, j: usize, k: usize, v: f32) {
-        self.solid[(i, j, k)] = v;
+    pub fn set_solid(&mut self, i: usize, j: usize, k: usize, v: bool) {
+        self.mac.solid[(i, j, k)] = v;
     }
 
     pub fn iter_positions(&self) -> impl Iterator<Item = &Vec3> {
         self.positions.iter()
     }
 
-    pub fn iter_particles(&self) -> impl Iterator<Item = (&Vec3, &Vec3, &f32)> {
-        self.positions.iter().zip(self.velocities.iter()).zip(self.roughness.iter()).map(|((p, v), r)| (p, v, r))
+    pub fn iter_particles(&self) -> impl Iterator<Item = (&Vec3, &Vec3)> {
+        self.positions.iter().zip(self.velocities.iter())
     }
 
     pub fn size(&self) -> UVec3 {
-        self.size
+        self.mac.grid_size
     }
 
-    pub fn bounds(&self) -> (Vec3, Vec3) {
-        (
-            Vec3::splat(self.spacing + self.particle_radius),
-            (self.size - 1).as_vec3() * self.spacing - self.particle_radius,
-        )
+    pub fn spacing(&self) -> f32 {
+        self.mac.spacing
     }
 
-    fn integrate_particles(&mut self, dt: f32, gravity: Vec3) {
-        self.velocities.map_inplace(|v| *v += dt * gravity);
+    fn integrate_particles(&mut self, dt: f32, gravity: Vec3, obstacles: &ObstacleSet<3>) {
+        self.positions.iter().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
+            let sdf = obstacles.sdf((*p).into());
+            if sdf.distance < 0.0 {
+                *v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
+            }
+        });
+        
+        self.velocities.iter_mut().for_each(|v| *v += dt * gravity);
 
-        azip!((p in &mut self.positions, vel in &self.velocities) {
-            *p += vel * dt;
+        self.positions.iter_mut().zip(self.velocities.iter()).for_each(|(p, v)| {
+            *p += v * dt;
         });
     }
 
-    fn push_particles_apart(&mut self, num_iters: usize) {
-        const ROUGHNESS_DIFFUSION: f32 = 0.001;
-
+    fn separate_particles(&mut self, num_iters: usize) {
         self.cell_particle_count.fill(0);
         self.first_cell_particle.fill(0);
 
@@ -255,12 +178,6 @@ impl FlipFluid3D {
 
                                 self.positions[i] -= delta;
                                 self.positions[id] += delta;
-
-                                let r0 = self.roughness[i];
-                                let r1 = self.roughness[id];
-                                let rough = 0.5 * (r0 + r1);
-                                self.roughness[i] = r0 + (rough - r0) * ROUGHNESS_DIFFUSION;
-                                self.roughness[id] = r1 + (rough - r1) * ROUGHNESS_DIFFUSION;
                             }
                         }
                     }
@@ -269,16 +186,11 @@ impl FlipFluid3D {
         }
     }
 
-    fn handle_particle_collisions(&mut self, obstacles: &ObstacleSet<3>, dt: f32) {
-        let (min, max) = self.bounds();
+    fn handle_particle_collisions(&mut self) {
+        let min = Vec3::splat(self.mac.spacing + self.particle_radius);
+        let max = self.mac.size - min;
 
-        azip!((p in &mut self.positions, v in &mut self.velocities) {
-            let sdf = obstacles.sdf((*p).into());
-            if sdf.distance < 0.0 {
-                // TODO: add velocity of obstacle to this.
-                *v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
-            }
-
+        self.positions.iter_mut().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
             if p.x < min.x {
                 p.x = min.x;
                 v.x = 0.0;
@@ -312,50 +224,50 @@ impl FlipFluid3D {
     }
 
     fn update_particle_density(&mut self) {
-        let h = self.spacing;
-        let h1 = h.recip();
+        let h = self.mac.spacing;
+        let h1 = self.mac.inv_spacing;
         let h2 = 0.5 * h;
 
-        self.densities.fill(0.0);
+        self.mac.densities.fill(0.0);
 
         for p in self.positions.iter() {
-            let pi = p.clamp(Vec3::splat(h), (self.size - 1).as_vec3() * h);
+            let pi = p.clamp(Vec3::splat(h), (self.mac.grid_size - 1).as_vec3() * h);
 
             let p0 = ((pi - h2) * h1).floor().as_uvec3();
             let t = ((pi - h2) - p0.as_vec3() * h) * h1;
-            let p1 = (p0 + 1).min(self.size - 2);
+            let p1 = (p0 + 1).min(self.mac.grid_size - 2);
             let s = 1.0 - t;
 
-            if p0.x < self.size.x && p0.y < self.size.y && p0.z < self.size.z {
-                self.densities[(p0.x as usize, p0.y as usize, p0.z as usize)] += s.x * s.y * s.z;
+            if p0.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
+                self.mac.densities[(p0.x as usize, p0.y as usize, p0.z as usize)] += s.x * s.y * s.z;
             }
 
-            if p1.x < self.size.x && p0.y < self.size.y && p0.z < self.size.z {
-                self.densities[(p1.x as usize, p0.y as usize, p0.z as usize)] += t.x * s.y * s.z;
+            if p1.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
+                self.mac.densities[(p1.x as usize, p0.y as usize, p0.z as usize)] += t.x * s.y * s.z;
             }
 
-            if p0.x < self.size.x && p1.y < self.size.y && p0.z < self.size.z {
-                self.densities[(p0.x as usize, p1.y as usize, p0.z as usize)] += s.x * t.y * s.z;
+            if p0.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
+                self.mac.densities[(p0.x as usize, p1.y as usize, p0.z as usize)] += s.x * t.y * s.z;
             }
 
-            if p1.x < self.size.x && p1.y < self.size.y && p0.z < self.size.z {
-                self.densities[(p1.x as usize, p1.y as usize, p0.z as usize)] += t.x * t.y * s.z;
+            if p1.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
+                self.mac.densities[(p1.x as usize, p1.y as usize, p0.z as usize)] += t.x * t.y * s.z;
             }
 
-            if p0.x < self.size.x && p0.y < self.size.y && p1.z < self.size.z {
-                self.densities[(p0.x as usize, p0.y as usize, p1.z as usize)] += s.x * s.y * t.z;
+            if p0.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
+                self.mac.densities[(p0.x as usize, p0.y as usize, p1.z as usize)] += s.x * s.y * t.z;
             }
 
-            if p1.x < self.size.x && p0.y < self.size.y && p1.z < self.size.z {
-                self.densities[(p1.x as usize, p0.y as usize, p1.z as usize)] += t.x * s.y * t.z;
+            if p1.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
+                self.mac.densities[(p1.x as usize, p0.y as usize, p1.z as usize)] += t.x * s.y * t.z;
             }
 
-            if p0.x < self.size.x && p1.y < self.size.y && p1.z < self.size.z {
-                self.densities[(p0.x as usize, p1.y as usize, p1.z as usize)] += s.x * t.y * t.z;
+            if p0.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
+                self.mac.densities[(p0.x as usize, p1.y as usize, p1.z as usize)] += s.x * t.y * t.z;
             }
 
-            if p1.x < self.size.x && p1.y < self.size.y && p1.z < self.size.z {
-                self.densities[(p1.x as usize, p1.y as usize, p1.z as usize)] += t.x * t.y * t.z;
+            if p1.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
+                self.mac.densities[(p1.x as usize, p1.y as usize, p1.z as usize)] += t.x * t.y * t.z;
             }
         }
 
@@ -363,7 +275,7 @@ impl FlipFluid3D {
             let mut sum: f32 = 0.0;
             let mut num_fluid_cells: usize = 0;
 
-            azip!((&cell_type in &self.cell_type, &density in &self.densities) {
+            azip!((&cell_type in &self.mac.cell_type, &density in &self.mac.densities) {
                 if cell_type == CellType::Fluid {
                     sum += density;
                     num_fluid_cells += 1;
@@ -376,230 +288,557 @@ impl FlipFluid3D {
         }
     }
 
-    fn transfer_velocities_to_grid(&mut self) {
-        let h = self.spacing;
-        let h1 = h.recip();
-        let h2 = 0.5 * h;
+    fn particle_to_grid(&mut self) {
+        self.mac.u.fill(0.0);
+        self.mac.v.fill(0.0);
+        self.mac.w.fill(0.0);
+        self.mac.weight_u.fill(0.0);
+        self.mac.weight_v.fill(0.0);
+        self.mac.weight_w.fill(0.0);
 
-        self.prev_uvws.assign(&self.uvws);
-        self.dudvdws.fill(Vec3::ZERO);
-        self.uvws.fill(Vec3::ZERO);
+        let nx = self.mac.nx;
+        let ny = self.mac.ny;
+        let nz = self.mac.nz;
 
-        azip!((cell_type in &mut self.cell_type, &s in &self.solid) {
-            *cell_type = if s == 0.0 { CellType::Solid } else { CellType::Air };
+        let h_half = 0.5 * self.mac.spacing;
+        let h1 = self.mac.inv_spacing;
+        let h = 2.0 * self.mac.spacing;
+        let h2 = h * h;
+        let h4 = h2 * h2;
+        let coeff = 315.0 / (64.0 * PI * h4 * h4 * h);
+
+        azip!((cell_type in &mut self.mac.cell_type, &s in &self.mac.solid) {
+            *cell_type = if s { CellType::Solid } else { CellType::Air };
         });
 
-        for p in self.positions.iter() {
-            let pi = (p * h1).floor().as_uvec3().clamp(UVec3::ZERO, self.size - 1);
+        for i in 0..self.n_particles {
+            let pos = self.positions[i];
+            let vel = self.velocities[i];
 
-            if self.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] == CellType::Air {
-                self.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] = CellType::Fluid;
+            let pi = (pos * h1).floor().as_uvec3().clamp(UVec3::ZERO, self.mac.grid_size - 1);
+
+            if self.mac.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] == CellType::Air {
+                self.mac.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] = CellType::Fluid;
+            }
+
+            if pi.x >= 2 && pi.y >= 2 && pi.z >= 2 && pi.x < self.mac.grid_size.x - 3
+                && pi.y < self.mac.grid_size.y - 3 && pi.z < self.mac.grid_size.z - 3
+            {
+                for k in pi.z as usize - 2..=pi.z as usize + 3 {
+                    for j in pi.y as usize - 2..=pi.y as usize + 3 {
+                        for i in pi.x as usize - 2..=pi.x as usize + 3 {
+                            let rx = pos.x - i as f32 * self.mac.spacing;
+                            let ry = pos.y - j as f32 * self.mac.spacing;
+                            let rz = pos.z - k as f32 * self.mac.spacing;
+
+                            let x_diff = h2 - ry * ry - rz * rz - (rx + h_half) * (rx + h_half);
+                            let y_diff = h2 - rx * rx - rz * rz - (ry + h_half) * (ry + h_half);
+                            let z_diff = h2 - rx * rx - ry * ry - (rz + h_half) * (rz + h_half);
+
+                            if x_diff >= 0.0 {
+                                let u_weight_1 = coeff * x_diff * x_diff * x_diff;
+                                self.mac.u[(i, j, k)] += u_weight_1 * vel.x;
+                                self.mac.weight_u[(i, j, k)] += u_weight_1;
+                            }
+
+                            if y_diff >= 0.0 {
+                                let v_weight_1 = coeff * y_diff * y_diff * y_diff;
+                                self.mac.v[(i, j, k)] += v_weight_1 * vel.y;
+                                self.mac.weight_v[(i, j, k)] += v_weight_1;
+                            }
+
+                            if z_diff >= 0.0 {
+                                let w_weight_1 = coeff * z_diff * z_diff * z_diff;
+                                self.mac.w[(i, j, k)] += w_weight_1 * vel.z;
+                                self.mac.weight_w[(i, j, k)] += w_weight_1;
+                            }
+                        }
+                    }
+                }
+            } else {
+                for k in pi.z.max(2) as usize - 2..=pi.z as usize + 3 {
+                    for j in pi.y.max(2) as usize - 2..=pi.y as usize + 3 {
+                        for i in pi.x.max(2) as usize - 2..=pi.x as usize + 3 {
+                            let rx = pos.x - i as f32 * self.mac.spacing;
+                            let ry = pos.y - j as f32 * self.mac.spacing;
+                            let rz = pos.z - k as f32 * self.mac.spacing;
+
+                            if i <= nx && j < ny && k < nz {
+                                let x_diff = h2 - ry * ry - rz * rz - (rx + h_half) * (rx + h_half);
+
+                                if x_diff >= 0.0 {
+                                    let u_weight_1 = coeff * x_diff * x_diff * x_diff;
+                                    self.mac.u[(i, j, k)] += u_weight_1 * vel.x;
+                                    self.mac.weight_u[(i, j, k)] += u_weight_1;
+                                }
+                            }
+
+                            if i < nx && j <= ny && k < nz {
+                                let y_diff = h2 - rx * rx - rz * rz - (ry + h_half) * (ry + h_half);
+
+                                if y_diff >= 0.0 {
+                                    let v_weight_1 = coeff * y_diff * y_diff * y_diff;
+                                    self.mac.v[(i, j, k)] += v_weight_1 * vel.y;
+                                    self.mac.weight_v[(i, j, k)] += v_weight_1;
+                                }
+                            }
+
+                            if i < nx && j < ny && k <= nz {
+                                let z_diff = h2 - rx * rx - ry * ry - (rz + h_half) * (rz + h_half);
+
+                                if z_diff >= 0.0 {
+                                    let w_weight_1 = coeff * z_diff * z_diff * z_diff;
+                                    self.mac.w[(i, j, k)] += w_weight_1 * vel.z;
+                                    self.mac.weight_w[(i, j, k)] += w_weight_1;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        for dim in 0..3 {
-            let delta = Vec3::new(
-                if dim == 0 { 0.0 } else { h2 },
-                if dim == 1 { 0.0 } else { h2 },
-                if dim == 2 { 0.0 } else { h2 },
-            );
+        let mut visited_u = vec![false; (nx + 1) * ny * nz];
+        let mut visited_v = vec![false; nx * (ny + 1) * nz];
+        let mut visited_w = vec![false; nx * ny * (nz + 1)];
 
-            for i in 0..self.n_particles {
-                let p = self.positions[i];
-                let pi = p.clamp(Vec3::splat(h), (self.size - 1).as_vec3() * h);
+        for k in 0..nz {
+            for j in 0..ny {
+                for i in 0..nx {
+                    let u_idx = i + (nx + 1) * (j + ny * k);
+                    let v_idx = i + nx * (j + (ny + 1) * k);
+                    let w_idx = i + nx * (j + ny * k);
 
-                let p0 = ((pi - delta) * h1).floor().as_uvec3().min(self.size - 2);
-                let t = ((pi - delta) - p0.as_vec3() * h) * h1;
-                let p1 = (p0 + 1).min(self.size - 2);
-                let s = 1.0 - t;
+                    let u_weight = self.mac.weight_u[(i, j, k)];
+                    let v_weight = self.mac.weight_v[(i, j, k)];
+                    let w_weight = self.mac.weight_w[(i, j, k)];
 
-                let i0 = (p0.x as usize, p0.y as usize, p0.z as usize);
-                let i1 = (p1.x as usize, p0.y as usize, p0.z as usize);
-                let i2 = (p0.x as usize, p1.y as usize, p0.z as usize);
-                let i3 = (p1.x as usize, p1.y as usize, p0.z as usize);
-                let i4 = (p0.x as usize, p0.y as usize, p1.z as usize);
-                let i5 = (p1.x as usize, p0.y as usize, p1.z as usize);
-                let i6 = (p0.x as usize, p1.y as usize, p1.z as usize);
-                let i7 = (p1.x as usize, p1.y as usize, p1.z as usize);
+                    if u_weight != 0.0 {
+                        self.mac.u[(i, j, k)] /= u_weight;
+                        visited_u[u_idx] = true;
+                    }
 
-                let d0 = s.x * s.y * s.z;
-                let d1 = t.x * s.y * s.z;
-                let d2 = s.x * t.y * s.z;
-                let d3 = t.x * t.y * s.z;
-                let d4 = s.x * s.y * t.z;
-                let d5 = t.x * s.y * t.z;
-                let d6 = s.x * t.y * t.z;
-                let d7 = t.x * t.y * t.z;
+                    if v_weight != 0.0 {
+                        self.mac.v[(i, j, k)] /= v_weight;
+                        visited_v[v_idx] = true;
+                    }
 
-                let v = self.velocities[i][dim];
-                self.uvws[i0][dim] += v * d0;
-                self.uvws[i1][dim] += v * d1;
-                self.uvws[i2][dim] += v * d2;
-                self.uvws[i3][dim] += v * d3;
-                self.uvws[i4][dim] += v * d4;
-                self.uvws[i5][dim] += v * d5;
-                self.uvws[i6][dim] += v * d6;
-                self.uvws[i7][dim] += v * d7;
-                self.dudvdws[i0][dim] += d0;
-                self.dudvdws[i1][dim] += d1;
-                self.dudvdws[i2][dim] += d2;
-                self.dudvdws[i3][dim] += d3;
-                self.dudvdws[i4][dim] += d4;
-                self.dudvdws[i5][dim] += d5;
-                self.dudvdws[i6][dim] += d6;
-                self.dudvdws[i7][dim] += d7;
-            }
-
-            azip!((uv in &mut self.uvws, &dudv in &self.dudvdws) {
-                if dudv[dim] > 0.0 {
-                    uv[dim] /= dudv[dim];
+                    if w_weight != 0.0 {
+                        self.mac.w[(i, j, k)] /= w_weight;
+                        visited_w[w_idx] = true;
+                    }
                 }
-            });
+            }
+        }
 
-            for i in 0..self.size.x as usize {
-                for j in 0..self.size.y as usize {
-                    for k in 0..self.size.z as usize {
-                        let solid = self.cell_type[(i, j, k)] == CellType::Solid;
+        for k in 0..nz {
+            for j in 0..ny {
+                let u_idx = nx + (nx + 1) * (j + ny * k);
+                let u_weight = self.mac.weight_u[(nx, j, k)];
 
-                        if solid || (i > 0 && self.cell_type[(i - 1, j, k)] == CellType::Solid) {
-                            self.uvws[(i, j, k)].x = self.prev_uvws[(i, j, k)].x;
+                if u_weight != 0.0 {
+                    self.mac.u[(nx, j, k)] /= u_weight;
+                    visited_u[u_idx] = true;
+                }
+            }
+        }
+
+        for k in 0..nz {
+            for i in 0..nx {
+                let v_idx = i + nx * (ny + (ny + 1) * k);
+                let v_weight = self.mac.weight_v[(i, ny, k)];
+
+                if v_weight != 0.0 {
+                    self.mac.v[(i, ny, k)] /= v_weight;
+                    visited_v[v_idx] = true;
+                }
+            }
+        }
+
+        for j in 0..ny {
+            for i in 0..nx {
+                let w_idx = i + nx * (j + ny * nz);
+                let w_weight = self.mac.weight_w[(i, j, nz)];
+
+                if w_weight != 0.0 {
+                    self.mac.w[(i, j, nz)] /= w_weight;
+                    visited_w[w_idx] = true;
+                }
+            }
+        }
+
+        for k in 0..nz {
+            for j in 0..ny {
+                for i in 0..nx {
+                    let u_idx = i + (nx + 1) * (j + ny * k);
+                    let v_idx = i + nx * (j + (ny + 1) * k);
+                    let w_idx = i + nx * (j + ny * k);
+
+                    if !visited_u[u_idx] {
+                        let mut u_counter: u8 = 0;
+
+                        let u_left = if i > 0 && visited_u[u_idx - 1] {
+                            u_counter += 1;
+                            self.mac.u[(i - 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let u_right = if i < nx - 1 && visited_u[u_idx + 1] {
+                            u_counter += 1;
+                            self.mac.u[(i + 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
+                            u_counter += 1;
+                            self.mac.u[(i, j - 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
+                            u_counter += 1;
+                            self.mac.u[(i, j + 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let u_back = if k > 0 && visited_u[u_idx - (nx + 1) * ny] {
+                            u_counter += 1;
+                            self.mac.u[(i, j, k - 1)]
+                        } else {
+                            0.0
+                        };
+
+                        let u_front = if k < nz - 1 && visited_u[u_idx + (nx + 1) * ny] {
+                            u_counter += 1;
+                            self.mac.u[(i, j, k + 1)]
+                        } else {
+                            0.0
+                        };
+
+                        if u_counter != 0 {
+                            self.mac.u[(i, j, k)] = (u_left + u_right + u_down + u_up + u_back + u_front) / u_counter as f32;
                         }
+                    }
 
-                        if solid || (j > 0 && self.cell_type[(i, j - 1, k)] == CellType::Solid) {
-                            self.uvws[(i, j, k)].y = self.prev_uvws[(i, j, k)].y;
-                        }
+                    if !visited_v[v_idx] {
+                        let mut v_counter: u8 = 0;
 
-                        if solid || (k > 0 && self.cell_type[(i, j, k - 1)] == CellType::Solid) {
-                            self.uvws[(i, j, k)].z = self.prev_uvws[(i, j, k)].z;
+                        let v_left = if i > 0 && visited_v[v_idx - 1] {
+                            v_counter += 1;
+                            self.mac.v[(i - 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
+                            v_counter += 1;
+                            self.mac.v[(i + 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let v_down = if j > 0 && visited_v[v_idx - nx] {
+                            v_counter += 1;
+                            self.mac.v[(i, j - 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let v_up = if j < ny - 1 && visited_v[v_idx + nx] {
+                            v_counter += 1;
+                            self.mac.v[(i, j + 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let v_back = if k > 0 && visited_v[v_idx - nx * (ny + 1)] {
+                            v_counter += 1;
+                            self.mac.v[(i, j, k - 1)]
+                        } else {
+                            0.0
+                        };
+
+                        let v_front = if k < nz - 1 && visited_v[v_idx + nx * (ny + 1)] {
+                            v_counter += 1;
+                            self.mac.v[(i, j, k + 1)]
+                        } else {
+                            0.0
+                        };
+
+                        if v_counter != 0 {
+                            self.mac.v[(i, j, k)] = (v_left + v_right + v_down + v_up + v_back + v_front) / v_counter as f32;
                         }
+                    }
+
+                    if !visited_w[w_idx] {
+                        let mut w_counter: u8 = 0;
+
+                        let w_left = if i > 0 && visited_w[w_idx - 1] {
+                            w_counter += 1;
+                            self.mac.w[(i - 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let w_right = if i < nx - 1 && visited_w[w_idx + 1] {
+                            w_counter += 1;
+                            self.mac.w[(i + 1, j, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let w_down = if j > 0 && visited_w[w_idx - nx] {
+                            w_counter += 1;
+                            self.mac.w[(i, j - 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let w_up = if j < ny - 1 && visited_w[w_idx + nx] {
+                            w_counter += 1;
+                            self.mac.w[(i, j + 1, k)]
+                        } else {
+                            0.0
+                        };
+
+                        let w_back = if k > 0 && visited_w[w_idx - nx * ny] {
+                            w_counter += 1;
+                            self.mac.w[(i, j, k - 1)]
+                        } else {
+                            0.0
+                        };
+
+                        let w_front = if k < nz - 1 && visited_w[w_idx + nx * ny] {
+                            w_counter += 1;
+                            self.mac.w[(i, j, k + 1)]
+                        } else {
+                            0.0
+                        };
+
+                        if w_counter != 0 {
+                            self.mac.w[(i, j, k)] = (w_left + w_right + w_down + w_up + w_back + w_front) / w_counter as f32;
+                        }
+                    }
+                }
+            }
+        }
+
+        for k in 0..nz {
+            for j in 0..ny {
+                let u_idx = nx + (nx + 1) * (j + ny * k);
+
+                if !visited_u[u_idx] {
+                    let mut u_counter: u8 = 0;
+
+                    let u_left = if visited_u[u_idx - 1] {
+                        u_counter += 1;
+                        self.mac.u[(nx - 1, j, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
+                        u_counter += 1;
+                        self.mac.u[(nx, j - 1, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
+                        u_counter += 1;
+                        self.mac.u[(nx, j + 1, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_back = if k > 0 && visited_u[u_idx - (nx + 1) * ny] {
+                        u_counter += 1;
+                        self.mac.u[(nx, j, k - 1)]
+                    } else {
+                        0.0
+                    };
+
+                    let u_front = if k < nz - 1 && visited_u[u_idx + (nx + 1) * ny] {
+                        u_counter += 1;
+                        self.mac.u[(nx, j, k + 1)]
+                    } else {
+                        0.0
+                    };
+
+                    if u_counter != 0 {
+                        self.mac.u[(nx, j, k)] = (u_left + u_down + u_up + u_back + u_front) / u_counter as f32;
+                    }
+                }
+            }
+        }
+
+        for k in 0..nz {
+            for i in 0..nx {
+                let v_idx = i + nx * (ny + (ny + 1) * k);
+
+                if !visited_v[v_idx] {
+                    let mut v_counter: u8 = 0;
+
+                    let v_left = if i > 0 && visited_v[v_idx - 1] {
+                        v_counter += 1;
+                        self.mac.v[(i - 1, ny, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
+                        v_counter += 1;
+                        self.mac.v[(i + 1, ny, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_down = if visited_v[v_idx - nx] {
+                        v_counter += 1;
+                        self.mac.v[(i, ny - 1, k)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_back = if k > 0 && visited_v[v_idx - nx * (ny + 1)] {
+                        v_counter += 1;
+                        self.mac.v[(i, ny, k - 1)]
+                    } else {
+                        0.0
+                    };
+
+                    let v_front = if k < nz - 1 && visited_v[v_idx + nx * (ny + 1)] {
+                        v_counter += 1;
+                        self.mac.v[(i, ny, k + 1)]
+                    } else {
+                        0.0
+                    };
+
+                    if v_counter != 0 {
+                        self.mac.v[(i, ny, k)] = (v_left + v_right + v_down + v_back + v_front) / v_counter as f32;
+                    }
+                }
+            }
+        }
+
+        for j in 0..ny {
+            for i in 0..nx {
+                let w_idx = i + nx * (j + ny * nz);
+
+                if !visited_w[w_idx] {
+                    let mut w_counter: u8 = 0;
+
+                    let w_left = if i > 0 && visited_w[w_idx - 1] {
+                        w_counter += 1;
+                        self.mac.w[(i - 1, j, nz)]
+                    } else {
+                        0.0
+                    };
+
+                    let w_right = if i < nx - 1 && visited_w[w_idx + 1] {
+                        w_counter += 1;
+                        self.mac.w[(i + 1, j, nz)]
+                    } else {
+                        0.0
+                    };
+
+                    let w_down = if j > 0 && visited_w[w_idx - nx] {
+                        w_counter += 1;
+                        self.mac.w[(i, j - 1, nz)]
+                    } else {
+                        0.0
+                    };
+
+                    let w_up = if j < ny - 1 && visited_w[w_idx + nx] {
+                        w_counter += 1;
+                        self.mac.w[(i, j + 1, nz)]
+                    } else {
+                        0.0
+                    };
+
+                    let w_back = if visited_w[w_idx - nx * ny] {
+                        w_counter += 1;
+                        self.mac.w[(i, j, nz - 1)]
+                    } else {
+                        0.0
+                    };
+
+                    if w_counter != 0 {
+                        self.mac.w[(i, j, nz)] = (w_left + w_right + w_down + w_up + w_back) / w_counter as f32;
                     }
                 }
             }
         }
     }
 
-    fn transfer_velocities_to_particles(&mut self, flip_ratio: f32) {
-        let h = self.spacing;
-        let h1 = h.recip();
-        let h2 = 0.5 * h;
+    fn grid_to_particle(&mut self, alpha: f32) {
+        let nx = self.mac.grid_size.x;
+        let ny = self.mac.grid_size.y;
+        let nz = self.mac.grid_size.z;
+        let h1 = self.mac.inv_spacing;
 
-        for dim in 0..3 {
-            let delta = Vec3::new(
-                if dim == 0 { 0.0 } else { h2 },
-                if dim == 1 { 0.0 } else { h2 },
-                if dim == 2 { 0.0 } else { h2 },
-            );
+        for i in 0..self.n_particles {
+            let p0 = self.positions[i];
+            let v0 = self.velocities[i];
 
-            for i in 0..self.n_particles {
-                let p = self.positions[i];
-                let pi = p.clamp(Vec3::splat(h), (self.size - 1).as_vec3() * h);
+            let pi = (p0 * h1).floor().as_uvec3().clamp(UVec3::ZERO, self.mac.grid_size - 1);
 
-                let p0 = ((pi - delta) * h1).floor().as_uvec3().min(self.size - 2);
-                let t = ((pi - delta) - p0.as_vec3() * h) * h1;
-                let p1 = (p0 + 1).min(self.size - 2);
-                let s = 1.0 - t;
+            let (interp_u, interp_u_star) = self.mac.get_bilerp_u(p0);
+            let (interp_v, interp_v_star) = self.mac.get_bilerp_v(p0);
+            let (interp_w, interp_w_star) = self.mac.get_bilerp_w(p0);
 
-                let i0 = (p0.x as usize, p0.y as usize, p0.z as usize);
-                let i1 = (p1.x as usize, p0.y as usize, p0.z as usize);
-                let i2 = (p0.x as usize, p1.y as usize, p0.z as usize);
-                let i3 = (p1.x as usize, p1.y as usize, p0.z as usize);
-                let i4 = (p0.x as usize, p0.y as usize, p1.z as usize);
-                let i5 = (p1.x as usize, p0.y as usize, p1.z as usize);
-                let i6 = (p0.x as usize, p1.y as usize, p1.z as usize);
-                let i7 = (p1.x as usize, p1.y as usize, p1.z as usize);
+            let interp_n1 = Vec3::new(interp_u, interp_v, interp_w);
+            let interp_star = Vec3::new(interp_u_star, interp_v_star, interp_w_star);
 
-                let d0 = s.x * s.y * s.z;
-                let d1 = t.x * s.y * s.z;
-                let d2 = s.x * t.y * s.z;
-                let d3 = t.x * t.y * s.z;
-                let d4 = s.x * s.y * t.z;
-                let d5 = t.x * s.y * t.z;
-                let d6 = s.x * t.y * t.z;
-                let d7 = t.x * t.y * t.z;
+            let u_update = if pi.x == 0 || pi.x == nx - 1 || pi.y == 0 || pi.y == ny - 1 || pi.z == 0 || pi.z == nz - 1 {
+                interp_n1 + (v0 - interp_star) * (1.0 - f32::min(1.0, 2.0 * alpha))
+            } else {
+                interp_n1 + (v0 - interp_star) * (1.0 - alpha)
+            };
 
-                let offset = if dim == 0 { (1, 0, 0) } else if dim == 1 { (0, 1, 0) } else { (0, 0, 1) };
-                let valid0 = self.cell_type[i0] != CellType::Air || self.cell_type[(i0.0 - offset.0, i0.1 - offset.1, i0.2 - offset.2)] != CellType::Air;
-                let valid1 = self.cell_type[i1] != CellType::Air || self.cell_type[(i1.0 - offset.0, i1.1 - offset.1, i1.2 - offset.2)] != CellType::Air;
-                let valid2 = self.cell_type[i2] != CellType::Air || self.cell_type[(i2.0 - offset.0, i2.1 - offset.1, i2.2 - offset.2)] != CellType::Air;
-                let valid3 = self.cell_type[i3] != CellType::Air || self.cell_type[(i3.0 - offset.0, i3.1 - offset.1, i3.2 - offset.2)] != CellType::Air;
-                let valid4 = self.cell_type[i4] != CellType::Air || self.cell_type[(i4.0 - offset.0, i4.1 - offset.1, i4.2 - offset.2)] != CellType::Air;
-                let valid5 = self.cell_type[i5] != CellType::Air || self.cell_type[(i5.0 - offset.0, i5.1 - offset.1, i5.2 - offset.2)] != CellType::Air;
-                let valid6 = self.cell_type[i6] != CellType::Air || self.cell_type[(i6.0 - offset.0, i6.1 - offset.1, i6.2 - offset.2)] != CellType::Air;
-                let valid7 = self.cell_type[i7] != CellType::Air || self.cell_type[(i7.0 - offset.0, i7.1 - offset.1, i7.2 - offset.2)] != CellType::Air;
-                let v0 = if valid0 { 1.0 } else { 0.0 };
-                let v1 = if valid1 { 1.0 } else { 0.0 };
-                let v2 = if valid2 { 1.0 } else { 0.0 };
-                let v3 = if valid3 { 1.0 } else { 0.0 };
-                let v4 = if valid4 { 1.0 } else { 0.0 };
-                let v5 = if valid5 { 1.0 } else { 0.0 };
-                let v6 = if valid6 { 1.0 } else { 0.0 };
-                let v7 = if valid7 { 1.0 } else { 0.0 };
-
-                let v = self.velocities[i][dim];
-                let d = v0 * d0 + v1 * d1 + v2 * d2 + v3 * d3 + v4 * d4 + v5 * d5 + v6 * d6 + v7 * d7;
-
-                if d > 0.0 {
-                    let picv = (v0 * d0 * self.uvws[i0][dim] + v1 * d1 * self.uvws[i1][dim] 
-                        + v2 * d2 * self.uvws[i2][dim] + v3 * d3 * self.uvws[i3][dim]
-                        + v4 * d4 * self.uvws[i4][dim] + v5 * d5 * self.uvws[i5][dim]
-                        + v6 * d6 * self.uvws[i6][dim] + v7 * d7 * self.uvws[i7][dim]) / d;
-                    let corr = (v0 * d0 * (self.uvws[i0][dim] - self.prev_uvws[i0][dim]) 
-                        + v1 * d1 * (self.uvws[i1][dim] - self.prev_uvws[i1][dim])
-                        + v2 * d2 * (self.uvws[i2][dim] - self.prev_uvws[i2][dim])
-                        + v3 * d3 * (self.uvws[i3][dim] - self.prev_uvws[i3][dim])
-                        + v4 * d4 * (self.uvws[i4][dim] - self.prev_uvws[i4][dim])
-                        + v5 * d5 * (self.uvws[i5][dim] - self.prev_uvws[i5][dim])
-                        + v6 * d6 * (self.uvws[i6][dim] - self.prev_uvws[i6][dim])
-                        + v7 * d7 * (self.uvws[i7][dim] - self.prev_uvws[i7][dim])) / d;
-                    let flipv = v + corr;
-
-                    self.velocities[i][dim] = (1.0 - flip_ratio) * picv + flip_ratio * flipv;
-                }
-            }
+            self.velocities[i] = u_update;
         }
     }
 
-    fn solve_incompressibility(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
-        self.pressure.fill(0.0);
-        self.prev_uvws.assign(&self.uvws);
+    fn solve_pressure(&mut self, num_iters: usize, dt: f32, over_relaxation: f32, compensate_drift: bool) {
+        self.mac.pressure.fill(0.0);
 
-        let cp = self.density * self.spacing / dt;
+        let nx = self.mac.nx;
+        let ny = self.mac.ny;
+        let nz = self.mac.nz;
+        let cp = self.density * self.mac.spacing / dt;
 
         for _iter in 0..num_iters {
-            for i in 1..self.size.x as usize - 1 {
-                for j in 1..self.size.y as usize - 1 {
-                    for k in 1..self.size.z as usize - 1 {
-                        if self.cell_type[(i, j, k)] != CellType::Fluid {
+            for i in 1..nx - 1 {
+                for j in 1..ny - 1 {
+                    for k in 1..nz - 1 {
+                        if self.mac.cell_type[(i, j, k)] != CellType::Fluid {
                             continue;
                         }
 
-                        let center = (i, j, k);
-                        let left = (i - 1, j, k);
-                        let right = (i + 1, j, k);
-                        let bottom = (i, j - 1, k);
-                        let top = (i, j + 1, k);
-                        let back = (i, j, k - 1);
-                        let front = (i, j, k + 1);
-
-                        let sx0 = self.solid[left];
-                        let sx1 = self.solid[right];
-                        let sy0 = self.solid[bottom];
-                        let sy1 = self.solid[top];
-                        let sz0 = self.solid[back];
-                        let sz1 = self.solid[front];
+                        let sx0 = if self.mac.solid[(i - 1, j, k)] { 0.0 } else { 1.0 };
+                        let sx1 = if self.mac.solid[(i + 1, j, k)] { 0.0 } else { 1.0 };
+                        let sy0 = if self.mac.solid[(i, j - 1, k)] { 0.0 } else { 1.0 };
+                        let sy1 = if self.mac.solid[(i, j + 1, k)] { 0.0 } else { 1.0 };
+                        let sz0 = if self.mac.solid[(i, j, k - 1)] { 0.0 } else { 1.0 };
+                        let sz1 = if self.mac.solid[(i, j, k + 1)] { 0.0 } else { 1.0 };
                         let s = sx0 + sx1 + sy0 + sy1 + sz0 + sz1;
 
                         if s == 0.0 {
                             continue;
                         }
 
-                        let mut div = self.uvws[right].x - self.uvws[center].x
-                            + self.uvws[top].y - self.uvws[center].y
-                            + self.uvws[front].z - self.uvws[center].z;
+                        let mut div = self.mac.u[(i + 1, j, k)] - self.mac.u[(i, j, k)]
+                            + self.mac.v[(i, j + 1, k)] - self.mac.v[(i, j, k)]
+                            + self.mac.w[(i, j, k + 1)] - self.mac.w[(i, j, k)];
 
                         if self.rest_density > 0.0 && compensate_drift {
                             let stiffness = 1.0;
-                            let compression = self.densities[(i, j, k)] - self.rest_density;
+                            let compression = self.mac.densities[(i, j, k)] - self.rest_density;
                             if compression > 0.0 {
                                 div -= stiffness * compression;
                             }
@@ -607,57 +846,37 @@ impl FlipFluid3D {
 
                         let mut p = -div / s;
                         p *= over_relaxation;
-                        self.pressure[center] += cp * p;
+                        self.mac.pressure[(i, j, k)] += cp * p;
 
-                        self.uvws[center].x -= sx0 * p;
-                        self.uvws[right].x += sx1 * p;
-                        self.uvws[center].y -= sy0 * p;
-                        self.uvws[top].y += sy1 * p;
-                        self.uvws[center].z -= sz0 * p;
-                        self.uvws[front].z += sz1 * p;
+                        self.mac.u[(i, j, k)] -= sx0 * p;
+                        self.mac.u[(i + 1, j, k)] += sx1 * p;
+                        self.mac.v[(i, j, k)] -= sy0 * p;
+                        self.mac.v[(i, j + 1, k)] += sy1 * p;
+                        self.mac.w[(i, j, k)] -= sz0 * p;
+                        self.mac.w[(i, j, k + 1)] += sz1 * p;
                     }
                 }
             }
         }
     }
 
-    fn update_roughness(&mut self) {
-        let h1 = self.spacing.recip();
-        let d0 = self.rest_density;
-
-        for i in 0..self.n_particles {
-            let s = 0.01;
-            let p = self.positions[i];
-            let pi = (p * h1).floor().as_uvec3().clamp(UVec3::ONE, self.size - 1);
-
-            self.roughness[i] = (self.roughness[i] - s).clamp(0.0, 1.0);
-
-            if d0 > 0.0 {
-                let rel_density = self.densities[(pi.x as usize, pi.y as usize, pi.z as usize)] / d0;
-                if rel_density < 0.7 {
-                    let s = 0.8;
-                    self.roughness[i] = s;
-                }
-            }
-        }
-    }
-
-    pub fn set_obstacles(&mut self, obstacles: &ObstacleSet<3>, dt: f32) {
-        for i in 1..self.size.x as usize - 2 {
-            for j in 1..self.size.y as usize - 2 {
-                for k in 1..self.size.z as usize - 2 {
-                    self.solid[(i, j, k)] = 1.0;
-                    let p = Vec3::new(i as f32 + 0.5, j as f32 + 0.5, k as f32 + 0.5) * self.spacing;
+    fn set_obstacles(&mut self, obstacles: &ObstacleSet<3>, dt: f32) {
+        for i in 1..self.mac.nx - 1 {
+            for j in 1..self.mac.ny - 1 {
+                for k in 1..self.mac.nz - 1 {
+                    self.mac.solid[(i, j, k)] = false;
+                    let p = Vec3::new(i as f32 + 0.5, j as f32 + 0.5, k as f32 + 0.5) * self.mac.spacing;
                     let sdf = obstacles.sdf(p.into());
 
                     if sdf.distance < 0.0 {
-                        // TODO: add velocity of obstacle to this.
                         let v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
-                        self.solid[(i, j, k)] = 0.0;
-                        self.uvws[(i, j, k)] = v;
-                        self.uvws[(i + 1, j, k)].x = v.x;
-                        self.uvws[(i, j + 1, k)].y = v.y;
-                        self.uvws[(i, j, k + 1)].z = v.z;
+                        self.mac.solid[(i, j, k)] = true;
+                        self.mac.u[(i, j, k)] = v.x;
+                        self.mac.v[(i, j, k)] = v.y;
+                        self.mac.w[(i, j, k)] = v.z;
+                        self.mac.u[(i + 1, j, k)] = v.x;
+                        self.mac.v[(i, j + 1, k)] = v.y;
+                        self.mac.w[(i, j, k + 1)] = v.z;
                     }
                 }
             }
@@ -665,27 +884,27 @@ impl FlipFluid3D {
     }
 
     pub fn sample_density(&self, p: Vec3) -> f32 {
-        let h1 = self.spacing.recip();
+        let h1 = self.mac.inv_spacing;
 
         let x0 = (p.x * h1).floor() as usize;
-        let x1 = if (p.x * h1).fract() > 0.5 { x0 + 1 } else { x0 - 1 };
+        let x1 = if (p.x * h1).fract() > 0.5 { x0.min(self.mac.nx - 2) + 1 } else { x0.max(1) - 1 };
         let y0 = (p.y * h1).floor() as usize;
-        let y1 = if (p.y * h1).fract() > 0.5 { y0 + 1 } else { y0 - 1 };
+        let y1 = if (p.y * h1).fract() > 0.5 { y0.min(self.mac.ny - 2) + 1 } else { y0.max(1) - 1 };
         let z0 = (p.z * h1).floor() as usize;
-        let z1 = if (p.z * h1).fract() > 0.5 { z0 + 1 } else { z0 - 1 };
+        let z1 = if (p.z * h1).fract() > 0.5 { z0.min(self.mac.nz - 2) + 1 } else { z0.max(1) - 1 };
 
         let dx = (p.x * h1) - (x0 as f32 + 0.5);
         let dy = (p.y * h1) - (y0 as f32 + 0.5);
         let dz = (p.z * h1) - (z0 as f32 + 0.5);
 
-        let v000 = self.densities.get((x0, y0, z0)).copied().unwrap_or(0.0);
-        let v001 = self.densities.get((x0, y0, z1)).copied().unwrap_or(0.0);
-        let v010 = self.densities.get((x0, y1, z0)).copied().unwrap_or(0.0);
-        let v011 = self.densities.get((x0, y1, z1)).copied().unwrap_or(0.0);
-        let v100 = self.densities.get((x1, y0, z0)).copied().unwrap_or(0.0);
-        let v101 = self.densities.get((x1, y0, z1)).copied().unwrap_or(0.0);
-        let v110 = self.densities.get((x1, y1, z0)).copied().unwrap_or(0.0);
-        let v111 = self.densities.get((x1, y1, z1)).copied().unwrap_or(0.0);
+        let v000 = self.mac.densities.get((x0, y0, z0)).copied().unwrap_or(0.0);
+        let v001 = self.mac.densities.get((x0, y0, z1)).copied().unwrap_or(0.0);
+        let v010 = self.mac.densities.get((x0, y1, z0)).copied().unwrap_or(0.0);
+        let v011 = self.mac.densities.get((x0, y1, z1)).copied().unwrap_or(0.0);
+        let v100 = self.mac.densities.get((x1, y0, z0)).copied().unwrap_or(0.0);
+        let v101 = self.mac.densities.get((x1, y0, z1)).copied().unwrap_or(0.0);
+        let v110 = self.mac.densities.get((x1, y1, z0)).copied().unwrap_or(0.0);
+        let v111 = self.mac.densities.get((x1, y1, z1)).copied().unwrap_or(0.0);
 
         v000 * (1.0 - dx) * (1.0 - dy) * (1.0 - dz)
             + v001 * (1.0 - dx) * (1.0 - dy) * dz
@@ -707,7 +926,6 @@ pub struct FlipFluid3DParams {
     pub num_particle_iters: usize,
     pub over_relaxation: f32,
     pub compensate_drift: bool,
-    pub separate_particles: bool,
 }
 
 impl Default for FlipFluid3DParams {
@@ -715,12 +933,11 @@ impl Default for FlipFluid3DParams {
         Self {
             num_substeps: 2,
             gravity: Vec3::new(0.0, -9.81, 0.0),
-            flip_ratio: 0.9,
+            flip_ratio: 0.1,
             num_pressure_iters: 100,
             num_particle_iters: 2,
             over_relaxation: 1.9,
             compensate_drift: true,
-            separate_particles: true,
         }
     }
 }
@@ -734,18 +951,24 @@ impl Fluid<3> for FlipFluid3D {
         self.set_obstacles(obstacles, dt);
 
         for _step in 0..params.num_substeps {
-            self.integrate_particles(sdt, params.gravity);
-            if params.separate_particles {
-                self.push_particles_apart(params.num_particle_iters);
-            }
-            self.handle_particle_collisions(obstacles, sdt);
-            self.transfer_velocities_to_grid();
-            self.update_particle_density();
-            self.solve_incompressibility(params.num_pressure_iters, sdt, params.over_relaxation, params.compensate_drift);
-            self.transfer_velocities_to_particles(params.flip_ratio);
-        }
+            self.integrate_particles(sdt, params.gravity, obstacles);
 
-        self.update_roughness();
+            if params.compensate_drift {
+                self.separate_particles(params.num_particle_iters);
+            }
+
+            self.handle_particle_collisions();
+
+            self.particle_to_grid();
+
+            self.mac.assign_uvw_star();
+
+            self.update_particle_density();
+
+            self.solve_pressure(params.num_pressure_iters, sdt, params.over_relaxation, params.compensate_drift);
+
+            self.grid_to_particle(params.flip_ratio);
+        }
     }
 
     fn particle_radius(&self) -> f32 {

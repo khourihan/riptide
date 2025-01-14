@@ -33,7 +33,7 @@ impl EncodeFluid for FlipFluid2D {
 
 impl EncodeFluid for FlipFluid3D {
     fn encode_state<W: std::io::Write>(&self, encoder: &mut FluidFrameEncoder<W>) -> Result<(), EncodingError> {
-        let delta = self.spacing;
+        let delta = self.spacing();
 
         encoder.encode_section(self.positions.len(), self.positions.iter().copied())?;
         encoder.encode_section(self.positions.len(), self.positions.iter().map(|&p| {

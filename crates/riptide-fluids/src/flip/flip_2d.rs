@@ -273,6 +273,7 @@ impl FlipFluid2D {
         let nx = self.mac.nx;
         let ny = self.mac.ny;
 
+        let h_half = 0.5 * self.mac.spacing;
         let h1 = self.mac.inv_spacing;
         let h = 2.0 * self.mac.spacing;
         let h2 = h * h;
@@ -299,8 +300,8 @@ impl FlipFluid2D {
                         let rx = pos.x - i as f32 * self.mac.spacing;
                         let ry = pos.y - j as f32 * self.mac.spacing;
 
-                        let x_diff = h2 - ry * ry - (rx + 0.5 * self.mac.spacing) * (rx + 0.5 * self.mac.spacing);
-                        let y_diff = h2 - rx * rx - (ry + 0.5 * self.mac.spacing) * (ry + 0.5 * self.mac.spacing);
+                        let x_diff = h2 - ry * ry - (rx + h_half) * (rx + h_half);
+                        let y_diff = h2 - rx * rx - (ry + h_half) * (ry + h_half);
 
                         if x_diff >= 0.0 {
                             let u_weight_1 = coeff * x_diff * x_diff * x_diff;
@@ -593,10 +594,10 @@ impl FlipFluid2D {
                         + self.mac.v[(i, j + 1)] - self.mac.v[(i, j)];
 
                     if self.rest_density > 0.0 && compensate_drift {
-                        let k = 1.0;
+                        let stiffness = 1.0;
                         let compression = self.mac.densities[(i, j)] - self.rest_density;
                         if compression > 0.0 {
-                            div -= k * compression;
+                            div -= stiffness * compression;
                         }
                     }
 

@@ -18,14 +18,17 @@ pub struct MacGrid2D {
     /// 1.0 / spacing.
     pub inv_spacing: f32,
     
-    /// Grid velocities.
+    /// Grid velocities in the X direction.
     pub u: Array2<f32>,
+    /// Grid velocities in the Y direction.
     pub v: Array2<f32>,
-    /// Grid velocity weights.
+    /// Grid velocity weights in the X direction.
     pub weight_u: Array2<f32>,
+    /// Grid velocity weights in the Y direction.
     pub weight_v: Array2<f32>,
-    /// Intermediate grid velocities.
+    /// Intermediate grid velocities in the X direction.
     pub u_star: Array2<f32>,
+    /// Intermediate grid velocities in the Y direction.
     pub v_star: Array2<f32>,
     /// Pressure of the grid.
     pub pressure: Array2<f32>,

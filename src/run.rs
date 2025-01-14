@@ -111,7 +111,7 @@ pub fn run_d3(
     let spacing = size.y / resolution as f32;
     let particle_radius = particle_radius * spacing;
 
-    let fluid = FlipFluid3D::new(1000.0, size.as_uvec3(), spacing, particle_radius);
+    let fluid = FlipFluid3D::new(1000.0, size, spacing, particle_radius);
     let params = FlipFluid3DParams::default();
 
     let mut scene = Scene::new(fluid, params, [size.x, size.y, size.z]);
@@ -133,19 +133,6 @@ pub fn run_d3(
                 let y = spacing + particle_radius + dy * j as f32;
                 let z = spacing + particle_radius + dz * k as f32 + (if j % 2 == 0 { 0.0 } else { particle_radius });
                 scene.fluid.insert_particle(Vec3::new(x, y, z));
-            }
-        }
-    }
-
-    let grid_size = scene.fluid.size();
-    for i in 0..grid_size.x {
-        for j in 0..grid_size.y {
-            for k in 0..grid_size.z {
-                let mut s = 1.0;
-                if i == 0 || i == grid_size.x - 1 || j == 0 || j == grid_size.y - 1 || k == 0 || k == grid_size.z - 1 {
-                    s = 0.0;
-                }
-                scene.fluid.set_solid(i as usize, j as usize, k as usize, s);
             }
         }
     }
