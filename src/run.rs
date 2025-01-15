@@ -82,7 +82,7 @@ pub fn run_d2(
         */
 
         // Spinning circle
-        if frame > 120 && t < 0.5 {
+        if frame > 120 && frame < 300 {
             let theta = t * duration_s * std::f32::consts::TAU + std::f32::consts::FRAC_PI_2;
             let center = Vec2::new(size.x + obstacle_r * theta.cos(), size.y + obstacle_r * theta.sin()) / 2.0;
             circle.set_position(center);

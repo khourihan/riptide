@@ -82,7 +82,7 @@ fn spawn_particles(
                     Vec3::new(pos[0], pos[1], 0.0),
                     Vec3::new(0.0, 0.0, 1.0),
                     1.0,
-                    LinearRgba::from(Color::srgb(0.0, 0.0, 1.0)),
+                    LinearRgba::from(Color::srgb(0.0, 0.8, 1.0)),
                 ))
                 .collect()
         ),
