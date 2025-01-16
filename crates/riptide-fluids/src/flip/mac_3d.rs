@@ -1,5 +1,4 @@
 use glam::{UVec3, Vec2, Vec3};
-use ndarray::{Array3, ArrayView3};
 
 use super::CellType;
 
@@ -21,31 +20,31 @@ pub struct MacGrid3D {
     pub inv_spacing: f32,
 
     /// Grid velocities in the X direction.
-    pub u: Array3<f32>,
+    pub u: Vec<f32>,
     /// Grid velocities in the Y direction.
-    pub v: Array3<f32>,
+    pub v: Vec<f32>,
     /// Grid velocities in the Z direction.
-    pub w: Array3<f32>,
+    pub w: Vec<f32>,
     /// Grid velocity weights in the X direction.
-    pub weight_u: Array3<f32>,
+    pub weight_u: Vec<f32>,
     /// Grid velocity weights in the Y direction.
-    pub weight_v: Array3<f32>,
+    pub weight_v: Vec<f32>,
     /// Grid velocity weights in the Z direction.
-    pub weight_w: Array3<f32>,
+    pub weight_w: Vec<f32>,
     /// Intermediate grid velocities in the X direction.
-    pub u_star: Array3<f32>,
+    pub u_star: Vec<f32>,
     /// Intermediate grid velocities in the Y direction.
-    pub v_star: Array3<f32>,
+    pub v_star: Vec<f32>,
     /// Intermediate grid velocities in the Z direction.
-    pub w_star: Array3<f32>,
+    pub w_star: Vec<f32>,
     /// Pressure of the grid.
-    pub pressure: Array3<f32>,
+    pub pressure: Vec<f32>,
     /// Solid grid cells.
-    pub solid: Array3<bool>,
+    pub solid: Vec<bool>,
     /// Grid cell types (`Fluid`, `Solid`, or `Air`).
-    pub cell_type: Array3<CellType>,
+    pub cell_type: Vec<CellType>,
     /// Grid densities.
-    pub densities: Array3<f32>,
+    pub densities: Vec<f32>,
 }
 
 impl MacGrid3D {
@@ -62,38 +61,38 @@ impl MacGrid3D {
         let ny = grid_size.y as usize;
         let nz = grid_size.z as usize;
 
-        let u = Array3::from_elem((nx + 1, ny, nz), 0.0);
-        let v = Array3::from_elem((nx, ny + 1, nz), 0.0);
-        let w = Array3::from_elem((nx, ny, nz + 1), 0.0);
-        let weight_u = Array3::from_elem((nx + 1, ny, nz), 0.0);
-        let weight_v = Array3::from_elem((nx, ny + 1, nz), 0.0);
-        let weight_w = Array3::from_elem((nx, ny, nz + 1), 0.0);
-        let u_star = Array3::from_elem((nx + 1, ny, nz), 0.0);
-        let v_star = Array3::from_elem((nx, ny + 1, nz), 0.0);
-        let w_star = Array3::from_elem((nx, ny, nz + 1), 0.0);
-        let pressure = Array3::from_elem((nx, ny, nz), 0.0);
-        let mut solid = Array3::from_elem((nx, ny, nz), false);
-        let cell_type = Array3::from_elem((nx, ny, nz), CellType::Air);
-        let densities = Array3::from_elem((nx, ny, nz), 0.0);
+        let u = vec![0.0; (nx + 1) * ny * nz];
+        let v = vec![0.0; nx * (ny + 1) * nz];
+        let w = vec![0.0; nx * ny * (nz + 1)];
+        let weight_u = vec![0.0; (nx + 1) * ny * nz];
+        let weight_v = vec![0.0; nx * (ny + 1) * nz];
+        let weight_w = vec![0.0; nx * ny * (nz + 1)];
+        let u_star = vec![0.0; (nx + 1) * ny * nz];
+        let v_star = vec![0.0; nx * (ny + 1) * nz];
+        let w_star = vec![0.0; nx * ny * (nz + 1)];
+        let pressure = vec![0.0; nx * ny * nz];
+        let mut solid = vec![false; nx * ny * nz];
+        let cell_type = vec![CellType::Air; nx * ny * nz];
+        let densities = vec![0.0; nx * ny * nz];
 
         for i in 0..nx {
             for j in 0..ny {
-                solid[(i, j, 0)] = true;
-                solid[(i, j, nz - 1)] = true;
+                solid[i + nx * j] = true;
+                solid[i + nx * (j + ny * (nz - 1))] = true;
             }
         }
 
         for i in 0..nx {
             for k in 0..nz {
-                solid[(i, 0, k)] = true;
-                solid[(i, ny - 1, k)] = true;
+                solid[i + nx * ny * k] = true;
+                solid[i + nx * ((ny - 1) + ny * k)] = true;
             }
         }
 
         for j in 0..ny {
             for k in 0..nz {
-                solid[(0, j, k)] = true;
-                solid[(nx - 1, j, k)] = true;
+                solid[nx * (j + ny * k)] = true;
+                solid[(nx - 1) + nx * (j + ny * k)] = true;
             }
         }
 
@@ -122,10 +121,30 @@ impl MacGrid3D {
     }
 
     #[inline]
+    pub fn idx(&self, i: usize, j: usize, k: usize) -> usize {
+        i + self.nx * (j + self.ny * k)
+    }
+
+    #[inline]
+    pub fn u_idx(&self, i: usize, j: usize, k: usize) -> usize {
+        i + (self.nx + 1) * (j + self.ny * k)
+    }
+
+    #[inline]
+    pub fn v_idx(&self, i: usize, j: usize, k: usize) -> usize {
+        i + self.nx * (j + (self.ny + 1) * k)
+    }
+
+    #[inline]
+    pub fn w_idx(&self, i: usize, j: usize, k: usize) -> usize {
+        i + self.nx * (j + self.ny * k)
+    }
+
+    #[inline]
     pub fn get_bilerp_u(&self, pos: Vec3) -> (f32, f32) {
         grid_interpolate(
-            self.u.view(),
-            self.u_star.view(),
+            &self.u,
+            &self.u_star,
             pos,
             self.spacing,
             self.inv_spacing,
@@ -141,8 +160,8 @@ impl MacGrid3D {
     #[inline]
     pub fn get_bilerp_v(&self, pos: Vec3) -> (f32, f32) {
         grid_interpolate(
-            self.v.view(),
-            self.v_star.view(),
+            &self.v,
+            &self.v_star,
             pos,
             self.spacing,
             self.inv_spacing,
@@ -158,15 +177,15 @@ impl MacGrid3D {
     #[inline]
     pub fn get_bilerp_w(&self, pos: Vec3) -> (f32, f32) {
         grid_interpolate(
-            self.w.view(),
-            self.w_star.view(),
+            &self.w,
+            &self.w_star,
             pos,
             self.spacing,
             self.inv_spacing,
             self.grid_size,
             self.nx,
             self.ny,
-            self.nz - 1,
+            self.nz + 1,
             Vec3::new(0.0, 0.0, -0.5 * self.spacing),
             self.size
         )
@@ -174,16 +193,16 @@ impl MacGrid3D {
 
     #[inline]
     pub fn assign_uvw_star(&mut self) {
-        self.u_star.assign(&self.u);
-        self.v_star.assign(&self.v);
-        self.w_star.assign(&self.w);
+        self.u_star = self.u.clone();
+        self.v_star = self.v.clone();
+        self.w_star = self.w.clone();
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn grid_interpolate(
-    g: ArrayView3<f32>,
-    g_star: ArrayView3<f32>,
+    g: &[f32],
+    g_star: &[f32],
     p: Vec3,
     spacing: f32,
     inv_spacing: f32,
@@ -209,14 +228,14 @@ fn grid_interpolate(
     let inside_back = p.z <= size.z - spacing;
 
     if inside_left && inside_right && inside_bottom && inside_top && inside_front && inside_back {
-        let i000 = (px, py, pz);
-        let i001 = (px, py, pz + 1);
-        let i010 = (px, py + 1, pz);
-        let i011 = (px, py + 1, pz + 1);
-        let i100 = (px + 1, py, pz);
-        let i101 = (px + 1, py, pz + 1);
-        let i110 = (px + 1, py + 1, pz);
-        let i111 = (px + 1, py + 1, pz + 1);
+        let i000 = px + nx * (py + ny * pz);
+        let i001 = px + nx * (py + ny * (pz + 1));
+        let i010 = px + nx * ((py + 1) + ny * pz);
+        let i011 = px + nx * ((py + 1) + ny * (pz + 1));
+        let i100 = i000 + 1;
+        let i101 = i001 + 1;
+        let i110 = i010 + 1;
+        let i111 = i011 + 1;
 
         let delta = (p - min) * inv_spacing;
         (
@@ -225,95 +244,95 @@ fn grid_interpolate(
         )
     } else if !inside_left {
         if !inside_top {
-            let i0 = (0, ny - 1, pz);
-            let i1 = (0, ny - 1, pz + 1);
+            let i0 = nx * ((ny - 1) + ny * pz);
+            let i1 = i0 + nx * ny;
             do_lerp(i0, i1, min.z, inv_spacing, p.z, g, g_star)
         } else if !inside_bottom {
-            let i0 = (0, 0, pz);
-            let i1 = (0, 0, pz + 1);
+            let i0 = nx * ny * pz;
+            let i1 = i0 + nx * ny;
             do_lerp(i0, i1, min.z, inv_spacing, p.z, g, g_star)
         } else if !inside_front {
-            let i0 = (0, py, 0);
-            let i1 = (0, py + 1, 0);
+            let i0 = nx * py;
+            let i1 = i0 + nx;
             do_lerp(i0, i1, min.y, inv_spacing, p.y, g, g_star)
         } else if !inside_back {
-            let i0 = (0, py, nz - 1);
-            let i1 = (0, py + 1, nz - 1);
+            let i0 = nx * (py + ny * (nz - 1));
+            let i1 = i0 + nx;
             do_lerp(i0, i1, min.y, inv_spacing, p.y, g, g_star)
         } else {
-            let i00 = (0, py, pz);
-            let i01 = (0, py, pz + 1);
-            let i10 = (0, py + 1, pz);
-            let i11 = (0, py + 1, pz + 1);
+            let i00 = nx * (py + ny * pz);
+            let i01 = i00 + nx * ny;
+            let i10 = i00 + nx;
+            let i11 = i00 + nx + nx * ny;
             do_bilerp(i00, i01, i10, i11, min.y, min.z, inv_spacing, p.y, p.z, g, g_star)
         }
     } else if !inside_right {
         if !inside_top {
-            let i0 = (nx - 1, ny - 1, pz);
-            let i1 = (nx - 1, ny - 1, pz + 1);
+            let i0 = (nx - 1) + nx * ((ny - 1) + ny * pz);
+            let i1 = i0 + nx * ny;
             do_lerp(i0, i1, min.z, inv_spacing, p.z, g, g_star)
         } else if !inside_bottom {
-            let i0 = (nx - 1, 0, pz);
-            let i1 = (nx - 1, 0, pz + 1);
+            let i0 = (nx - 1) + nx * ny * pz;
+            let i1 = i0 + nx * ny;
             do_lerp(i0, i1, min.z, inv_spacing, p.z, g, g_star)
         } else if !inside_front {
-            let i0 = (nx - 1, py, 0);
-            let i1 = (nx - 1, py + 1, 0);
+            let i0 = (nx - 1) + nx * py;
+            let i1 = i0 + nx;
             do_lerp(i0, i1, min.y, inv_spacing, p.y, g, g_star)
         } else if !inside_back {
-            let i0 = (nx - 1, py, nz - 1);
-            let i1 = (nx - 1, py + 1, nz - 1);
+            let i0 = (nx - 1) + nx * (py + ny * (nz - 1));
+            let i1 = i0 + nx;
             do_lerp(i0, i1, min.y, inv_spacing, p.y, g, g_star)
         } else {
-            let i00 = (nx - 1, py, pz);
-            let i01 = (nx - 1, py, pz + 1);
-            let i10 = (nx - 1, py + 1, pz);
-            let i11 = (nx - 1, py + 1, pz + 1);
+            let i00 = (nx - 1) + nx * (py + ny * pz);
+            let i01 = i00 + nx * ny;
+            let i10 = i00 + nx;
+            let i11 = i00 + nx + nx * ny;
             do_bilerp(i00, i01, i10, i11, min.y, min.z, inv_spacing, p.y, p.z, g, g_star)
         }
     } else if !inside_top {
         if !inside_front {
-            let i0 = (px, ny - 1, 0);
-            let i1 = (px + 1, ny - 1, 0);
+            let i0 = px + nx * (ny - 1);
+            let i1 = i0 + 1;
             do_lerp(i0, i1, min.x, inv_spacing, p.x, g, g_star)
         } else if !inside_back {
-            let i0 = (px, ny - 1, nz - 1);
-            let i1 = (px + 1, ny - 1, nz - 1);
+            let i0 = px + nx * ((ny - 1) + ny * (nz - 1));
+            let i1 = i0 + 1;
             do_lerp(i0, i1, min.x, inv_spacing, p.x, g, g_star)
         } else {
-            let i00 = (px, ny - 1, pz);
-            let i01 = (px + 1, ny - 1, pz);
-            let i10 = (px, ny - 1, pz + 1);
-            let i11 = (px + 1, ny - 1, pz + 1);
+            let i00 = px + nx * ((ny - 1) + ny * pz);
+            let i01 = i00 + 1;
+            let i10 = i00 + nx * ny;
+            let i11 = i10 + 1;
             do_bilerp(i00, i01, i10, i11, min.z, min.x, inv_spacing, p.z, p.x, g, g_star)
         }
     } else if !inside_bottom {
         if !inside_front {
-            let i0 = (px, 0, 0);
-            let i1 = (px + 1, 0, 0);
+            let i0 = px;
+            let i1 = i0 + 1;
             do_lerp(i0, i1, min.x, inv_spacing, p.x, g, g_star)
         } else if !inside_back {
-            let i0 = (px, 0, nz - 1);
-            let i1 = (px + 1, 0, nz - 1);
+            let i0 = px + nx * ny * (nz - 1);
+            let i1 = i0 + 1;
             do_lerp(i0, i1, min.x, inv_spacing, p.x, g, g_star)
         } else {
-            let i00 = (px, 0, pz);
-            let i01 = (px + 1, 0, pz);
-            let i10 = (px, 0, pz + 1);
-            let i11 = (px + 1, 0, pz + 1);
+            let i00 = px + nx * ny * pz;
+            let i01 = i00 + 1;
+            let i10 = i00 + nx * ny;
+            let i11 = i10 + 1;
             do_bilerp(i00, i01, i10, i11, min.z, min.x, inv_spacing, p.z, p.x, g, g_star)
         }
     } else if !inside_front {
-        let i00 = (px, py, 0);
-        let i01 = (px, py + 1, 0);
-        let i10 = (px + 1, py, 0);
-        let i11 = (px + 1, py + 1, 0);
+        let i00 = px + nx * py;
+        let i01 = i00 + nx;
+        let i10 = i00 + 1;
+        let i11 = i10 + nx;
         do_bilerp(i00, i01, i10, i11, min.x, min.y, inv_spacing, p.x, p.y, g, g_star)
     } else {
-        let i00 = (px, py, nz - 1);
-        let i01 = (px, py + 1, nz - 1);
-        let i10 = (px + 1, py, nz - 1);
-        let i11 = (px + 1, py + 1, nz - 1);
+        let i00 = px + nx * (py + ny * (nz - 1));
+        let i01 = i00 + nx;
+        let i10 = i00 + 1;
+        let i11 = i10 + nx;
         do_bilerp(i00, i01, i10, i11, min.x, min.y, inv_spacing, p.x, p.y, g, g_star)
     }
 }
@@ -345,13 +364,13 @@ fn trilerp_norm(v000: f32, v001: f32, v010: f32, v011: f32, v100: f32, v101: f32
 }
 
 fn do_lerp(
-    i0: (usize, usize, usize),
-    i1: (usize, usize, usize),
+    i0: usize,
+    i1: usize,
     min: f32,
     inv_spacing: f32,
     p: f32,
-    g: ArrayView3<f32>,
-    g_star: ArrayView3<f32>,
+    g: &[f32],
+    g_star: &[f32],
 ) -> (f32, f32) {
     let alpha = (p - min) * inv_spacing;
     (
@@ -362,17 +381,17 @@ fn do_lerp(
 
 #[allow(clippy::too_many_arguments)]
 fn do_bilerp(
-    i00: (usize, usize, usize),
-    i01: (usize, usize, usize),
-    i10: (usize, usize, usize),
-    i11: (usize, usize, usize),
+    i00: usize,
+    i01: usize,
+    i10: usize,
+    i11: usize,
     min_x: f32,
     min_y: f32,
     inv_spacing: f32,
     p_x: f32,
     p_y: f32,
-    g: ArrayView3<f32>,
-    g_star: ArrayView3<f32>,
+    g: &[f32],
+    g_star: &[f32],
 ) -> (f32, f32) {
     let alpha = (p_x - min_x) * inv_spacing;
     let beta = (p_y - min_y) * inv_spacing;

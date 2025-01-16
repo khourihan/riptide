@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use glam::{UVec3, Vec3};
-use ndarray::azip;
 
 use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 
@@ -79,7 +78,8 @@ impl FlipFluid3D {
     }
 
     pub fn set_solid(&mut self, i: usize, j: usize, k: usize, v: bool) {
-        self.mac.solid[(i, j, k)] = v;
+        let idx = self.mac.idx(i, j, k);
+        self.mac.solid[idx] = v;
     }
 
     pub fn iter_positions(&self) -> impl Iterator<Item = &Vec3> {
@@ -239,35 +239,43 @@ impl FlipFluid3D {
             let s = 1.0 - t;
 
             if p0.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
-                self.mac.densities[(p0.x as usize, p0.y as usize, p0.z as usize)] += s.x * s.y * s.z;
+                let idx = self.mac.idx(p0.x as usize, p0.y as usize, p0.z as usize);
+                self.mac.densities[idx] += s.x * s.y * s.z;
             }
 
             if p1.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
-                self.mac.densities[(p1.x as usize, p0.y as usize, p0.z as usize)] += t.x * s.y * s.z;
+                let idx = self.mac.idx(p1.x as usize, p0.y as usize, p0.z as usize);
+                self.mac.densities[idx] += t.x * s.y * s.z;
             }
 
             if p0.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
-                self.mac.densities[(p0.x as usize, p1.y as usize, p0.z as usize)] += s.x * t.y * s.z;
+                let idx = self.mac.idx(p0.x as usize, p1.y as usize, p0.z as usize);
+                self.mac.densities[idx] += s.x * t.y * s.z;
             }
 
             if p1.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p0.z < self.mac.grid_size.z {
-                self.mac.densities[(p1.x as usize, p1.y as usize, p0.z as usize)] += t.x * t.y * s.z;
+                let idx = self.mac.idx(p1.x as usize, p1.y as usize, p0.z as usize);
+                self.mac.densities[idx] += t.x * t.y * s.z;
             }
 
             if p0.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
-                self.mac.densities[(p0.x as usize, p0.y as usize, p1.z as usize)] += s.x * s.y * t.z;
+                let idx = self.mac.idx(p0.x as usize, p0.y as usize, p1.z as usize);
+                self.mac.densities[idx] += s.x * s.y * t.z;
             }
 
             if p1.x < self.mac.grid_size.x && p0.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
-                self.mac.densities[(p1.x as usize, p0.y as usize, p1.z as usize)] += t.x * s.y * t.z;
+                let idx = self.mac.idx(p1.x as usize, p0.y as usize, p1.z as usize);
+                self.mac.densities[idx] += t.x * s.y * t.z;
             }
 
             if p0.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
-                self.mac.densities[(p0.x as usize, p1.y as usize, p1.z as usize)] += s.x * t.y * t.z;
+                let idx = self.mac.idx(p0.x as usize, p1.y as usize, p1.z as usize);
+                self.mac.densities[idx] += s.x * t.y * t.z;
             }
 
             if p1.x < self.mac.grid_size.x && p1.y < self.mac.grid_size.y && p1.z < self.mac.grid_size.z {
-                self.mac.densities[(p1.x as usize, p1.y as usize, p1.z as usize)] += t.x * t.y * t.z;
+                let idx = self.mac.idx(p1.x as usize, p1.y as usize, p1.z as usize);
+                self.mac.densities[idx] += t.x * t.y * t.z;
             }
         }
 
@@ -275,12 +283,12 @@ impl FlipFluid3D {
             let mut sum: f32 = 0.0;
             let mut num_fluid_cells: usize = 0;
 
-            azip!((&cell_type in &self.mac.cell_type, &density in &self.mac.densities) {
+            for (&cell_type, &density) in self.mac.cell_type.iter().zip(self.mac.densities.iter()) {
                 if cell_type == CellType::Fluid {
                     sum += density;
                     num_fluid_cells += 1;
                 }
-            });
+            }
 
             if num_fluid_cells > 0 {
                 self.rest_density = sum / num_fluid_cells as f32;
@@ -307,9 +315,9 @@ impl FlipFluid3D {
         let h4 = h2 * h2;
         let coeff = 315.0 / (64.0 * PI * h4 * h4 * h);
 
-        azip!((cell_type in &mut self.mac.cell_type, &s in &self.mac.solid) {
+        for (cell_type, &s) in self.mac.cell_type.iter_mut().zip(self.mac.solid.iter()) {
             *cell_type = if s { CellType::Solid } else { CellType::Air };
-        });
+        }
 
         for i in 0..self.n_particles {
             let pos = self.positions[i];
@@ -317,8 +325,9 @@ impl FlipFluid3D {
 
             let pi = (pos * h1).floor().as_uvec3().clamp(UVec3::ZERO, self.mac.grid_size - 1);
 
-            if self.mac.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] == CellType::Air {
-                self.mac.cell_type[(pi.x as usize, pi.y as usize, pi.z as usize)] = CellType::Fluid;
+            let idx = self.mac.idx(pi.x as usize, pi.y as usize, pi.z as usize);
+            if self.mac.cell_type[idx] == CellType::Air {
+                self.mac.cell_type[idx] = CellType::Fluid;
             }
 
             if pi.x >= 2 && pi.y >= 2 && pi.z >= 2 && pi.x < self.mac.grid_size.x - 3
@@ -337,20 +346,26 @@ impl FlipFluid3D {
 
                             if x_diff >= 0.0 {
                                 let u_weight_1 = coeff * x_diff * x_diff * x_diff;
-                                self.mac.u[(i, j, k)] += u_weight_1 * vel.x;
-                                self.mac.weight_u[(i, j, k)] += u_weight_1;
+                                let u_idx = self.mac.u_idx(i, j, k);
+
+                                self.mac.u[u_idx] += u_weight_1 * vel.x;
+                                self.mac.weight_u[u_idx] += u_weight_1;
                             }
 
                             if y_diff >= 0.0 {
                                 let v_weight_1 = coeff * y_diff * y_diff * y_diff;
-                                self.mac.v[(i, j, k)] += v_weight_1 * vel.y;
-                                self.mac.weight_v[(i, j, k)] += v_weight_1;
+                                let v_idx = self.mac.v_idx(i, j, k);
+
+                                self.mac.v[v_idx] += v_weight_1 * vel.y;
+                                self.mac.weight_v[v_idx] += v_weight_1;
                             }
 
                             if z_diff >= 0.0 {
                                 let w_weight_1 = coeff * z_diff * z_diff * z_diff;
-                                self.mac.w[(i, j, k)] += w_weight_1 * vel.z;
-                                self.mac.weight_w[(i, j, k)] += w_weight_1;
+                                let w_idx = self.mac.w_idx(i, j, k);
+
+                                self.mac.w[w_idx] += w_weight_1 * vel.z;
+                                self.mac.weight_w[w_idx] += w_weight_1;
                             }
                         }
                     }
@@ -368,8 +383,10 @@ impl FlipFluid3D {
 
                                 if x_diff >= 0.0 {
                                     let u_weight_1 = coeff * x_diff * x_diff * x_diff;
-                                    self.mac.u[(i, j, k)] += u_weight_1 * vel.x;
-                                    self.mac.weight_u[(i, j, k)] += u_weight_1;
+                                    let u_idx = self.mac.u_idx(i, j, k);
+
+                                    self.mac.u[u_idx] += u_weight_1 * vel.x;
+                                    self.mac.weight_u[u_idx] += u_weight_1;
                                 }
                             }
 
@@ -378,8 +395,10 @@ impl FlipFluid3D {
 
                                 if y_diff >= 0.0 {
                                     let v_weight_1 = coeff * y_diff * y_diff * y_diff;
-                                    self.mac.v[(i, j, k)] += v_weight_1 * vel.y;
-                                    self.mac.weight_v[(i, j, k)] += v_weight_1;
+                                    let v_idx = self.mac.v_idx(i, j, k);
+
+                                    self.mac.v[v_idx] += v_weight_1 * vel.y;
+                                    self.mac.weight_v[v_idx] += v_weight_1;
                                 }
                             }
 
@@ -388,8 +407,10 @@ impl FlipFluid3D {
 
                                 if z_diff >= 0.0 {
                                     let w_weight_1 = coeff * z_diff * z_diff * z_diff;
-                                    self.mac.w[(i, j, k)] += w_weight_1 * vel.z;
-                                    self.mac.weight_w[(i, j, k)] += w_weight_1;
+                                    let w_idx = self.mac.w_idx(i, j, k);
+
+                                    self.mac.w[w_idx] += w_weight_1 * vel.z;
+                                    self.mac.weight_w[w_idx] += w_weight_1;
                                 }
                             }
                         }
@@ -405,26 +426,26 @@ impl FlipFluid3D {
         for k in 0..nz {
             for j in 0..ny {
                 for i in 0..nx {
-                    let u_idx = i + (nx + 1) * (j + ny * k);
-                    let v_idx = i + nx * (j + (ny + 1) * k);
-                    let w_idx = i + nx * (j + ny * k);
+                    let u_idx = self.mac.u_idx(i, j, k);
+                    let v_idx = self.mac.v_idx(i, j, k);
+                    let w_idx = self.mac.w_idx(i, j, k);
 
-                    let u_weight = self.mac.weight_u[(i, j, k)];
-                    let v_weight = self.mac.weight_v[(i, j, k)];
-                    let w_weight = self.mac.weight_w[(i, j, k)];
+                    let u_weight = self.mac.weight_u[u_idx];
+                    let v_weight = self.mac.weight_v[v_idx];
+                    let w_weight = self.mac.weight_w[w_idx];
 
                     if u_weight != 0.0 {
-                        self.mac.u[(i, j, k)] /= u_weight;
+                        self.mac.u[u_idx] /= u_weight;
                         visited_u[u_idx] = true;
                     }
 
                     if v_weight != 0.0 {
-                        self.mac.v[(i, j, k)] /= v_weight;
+                        self.mac.v[v_idx] /= v_weight;
                         visited_v[v_idx] = true;
                     }
 
                     if w_weight != 0.0 {
-                        self.mac.w[(i, j, k)] /= w_weight;
+                        self.mac.w[w_idx] /= w_weight;
                         visited_w[w_idx] = true;
                     }
                 }
@@ -433,11 +454,11 @@ impl FlipFluid3D {
 
         for k in 0..nz {
             for j in 0..ny {
-                let u_idx = nx + (nx + 1) * (j + ny * k);
-                let u_weight = self.mac.weight_u[(nx, j, k)];
+                let u_idx = self.mac.u_idx(nx, j, k);
+                let u_weight = self.mac.weight_u[u_idx];
 
                 if u_weight != 0.0 {
-                    self.mac.u[(nx, j, k)] /= u_weight;
+                    self.mac.u[u_idx] /= u_weight;
                     visited_u[u_idx] = true;
                 }
             }
@@ -445,11 +466,11 @@ impl FlipFluid3D {
 
         for k in 0..nz {
             for i in 0..nx {
-                let v_idx = i + nx * (ny + (ny + 1) * k);
-                let v_weight = self.mac.weight_v[(i, ny, k)];
+                let v_idx = self.mac.v_idx(i, ny, k);
+                let v_weight = self.mac.weight_v[v_idx];
 
                 if v_weight != 0.0 {
-                    self.mac.v[(i, ny, k)] /= v_weight;
+                    self.mac.v[v_idx] /= v_weight;
                     visited_v[v_idx] = true;
                 }
             }
@@ -457,11 +478,11 @@ impl FlipFluid3D {
 
         for j in 0..ny {
             for i in 0..nx {
-                let w_idx = i + nx * (j + ny * nz);
-                let w_weight = self.mac.weight_w[(i, j, nz)];
+                let w_idx = self.mac.w_idx(i, j, nz);
+                let w_weight = self.mac.weight_w[w_idx];
 
                 if w_weight != 0.0 {
-                    self.mac.w[(i, j, nz)] /= w_weight;
+                    self.mac.w[w_idx] /= w_weight;
                     visited_w[w_idx] = true;
                 }
             }
@@ -470,57 +491,57 @@ impl FlipFluid3D {
         for k in 0..nz {
             for j in 0..ny {
                 for i in 0..nx {
-                    let u_idx = i + (nx + 1) * (j + ny * k);
-                    let v_idx = i + nx * (j + (ny + 1) * k);
-                    let w_idx = i + nx * (j + ny * k);
+                    let u_idx = self.mac.u_idx(i, j, k);
+                    let v_idx = self.mac.v_idx(i, j, k);
+                    let w_idx = self.mac.w_idx(i, j, k);
 
                     if !visited_u[u_idx] {
                         let mut u_counter: u8 = 0;
 
                         let u_left = if i > 0 && visited_u[u_idx - 1] {
                             u_counter += 1;
-                            self.mac.u[(i - 1, j, k)]
+                            self.mac.u[u_idx - 1]
                         } else {
                             0.0
                         };
 
                         let u_right = if i < nx - 1 && visited_u[u_idx + 1] {
                             u_counter += 1;
-                            self.mac.u[(i + 1, j, k)]
+                            self.mac.u[u_idx + 1]
                         } else {
                             0.0
                         };
 
                         let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
                             u_counter += 1;
-                            self.mac.u[(i, j - 1, k)]
+                            self.mac.u[u_idx - (nx + 1)]
                         } else {
                             0.0
                         };
 
                         let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
                             u_counter += 1;
-                            self.mac.u[(i, j + 1, k)]
+                            self.mac.u[u_idx + (nx + 1)]
                         } else {
                             0.0
                         };
 
                         let u_back = if k > 0 && visited_u[u_idx - (nx + 1) * ny] {
                             u_counter += 1;
-                            self.mac.u[(i, j, k - 1)]
+                            self.mac.u[u_idx - (nx + 1) * ny]
                         } else {
                             0.0
                         };
 
                         let u_front = if k < nz - 1 && visited_u[u_idx + (nx + 1) * ny] {
                             u_counter += 1;
-                            self.mac.u[(i, j, k + 1)]
+                            self.mac.u[u_idx + (nx + 1) * ny]
                         } else {
                             0.0
                         };
 
                         if u_counter != 0 {
-                            self.mac.u[(i, j, k)] = (u_left + u_right + u_down + u_up + u_back + u_front) / u_counter as f32;
+                            self.mac.u[u_idx] = (u_left + u_right + u_down + u_up + u_back + u_front) / u_counter as f32;
                         }
                     }
 
@@ -529,48 +550,48 @@ impl FlipFluid3D {
 
                         let v_left = if i > 0 && visited_v[v_idx - 1] {
                             v_counter += 1;
-                            self.mac.v[(i - 1, j, k)]
+                            self.mac.v[v_idx - 1]
                         } else {
                             0.0
                         };
 
                         let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
                             v_counter += 1;
-                            self.mac.v[(i + 1, j, k)]
+                            self.mac.v[v_idx + 1]
                         } else {
                             0.0
                         };
 
                         let v_down = if j > 0 && visited_v[v_idx - nx] {
                             v_counter += 1;
-                            self.mac.v[(i, j - 1, k)]
+                            self.mac.v[v_idx - nx]
                         } else {
                             0.0
                         };
 
                         let v_up = if j < ny - 1 && visited_v[v_idx + nx] {
                             v_counter += 1;
-                            self.mac.v[(i, j + 1, k)]
+                            self.mac.v[v_idx + nx]
                         } else {
                             0.0
                         };
 
                         let v_back = if k > 0 && visited_v[v_idx - nx * (ny + 1)] {
                             v_counter += 1;
-                            self.mac.v[(i, j, k - 1)]
+                            self.mac.v[v_idx - nx * (ny + 1)]
                         } else {
                             0.0
                         };
 
                         let v_front = if k < nz - 1 && visited_v[v_idx + nx * (ny + 1)] {
                             v_counter += 1;
-                            self.mac.v[(i, j, k + 1)]
+                            self.mac.v[v_idx + nx * (ny + 1)]
                         } else {
                             0.0
                         };
 
                         if v_counter != 0 {
-                            self.mac.v[(i, j, k)] = (v_left + v_right + v_down + v_up + v_back + v_front) / v_counter as f32;
+                            self.mac.v[v_idx] = (v_left + v_right + v_down + v_up + v_back + v_front) / v_counter as f32;
                         }
                     }
 
@@ -579,48 +600,48 @@ impl FlipFluid3D {
 
                         let w_left = if i > 0 && visited_w[w_idx - 1] {
                             w_counter += 1;
-                            self.mac.w[(i - 1, j, k)]
+                            self.mac.w[w_idx - 1]
                         } else {
                             0.0
                         };
 
                         let w_right = if i < nx - 1 && visited_w[w_idx + 1] {
                             w_counter += 1;
-                            self.mac.w[(i + 1, j, k)]
+                            self.mac.w[w_idx + 1]
                         } else {
                             0.0
                         };
 
                         let w_down = if j > 0 && visited_w[w_idx - nx] {
                             w_counter += 1;
-                            self.mac.w[(i, j - 1, k)]
+                            self.mac.w[w_idx - nx]
                         } else {
                             0.0
                         };
 
                         let w_up = if j < ny - 1 && visited_w[w_idx + nx] {
                             w_counter += 1;
-                            self.mac.w[(i, j + 1, k)]
+                            self.mac.w[w_idx + nx]
                         } else {
                             0.0
                         };
 
                         let w_back = if k > 0 && visited_w[w_idx - nx * ny] {
                             w_counter += 1;
-                            self.mac.w[(i, j, k - 1)]
+                            self.mac.w[w_idx - nx * ny]
                         } else {
                             0.0
                         };
 
                         let w_front = if k < nz - 1 && visited_w[w_idx + nx * ny] {
                             w_counter += 1;
-                            self.mac.w[(i, j, k + 1)]
+                            self.mac.w[w_idx + nx * ny]
                         } else {
                             0.0
                         };
 
                         if w_counter != 0 {
-                            self.mac.w[(i, j, k)] = (w_left + w_right + w_down + w_up + w_back + w_front) / w_counter as f32;
+                            self.mac.w[w_idx] = (w_left + w_right + w_down + w_up + w_back + w_front) / w_counter as f32;
                         }
                     }
                 }
@@ -629,48 +650,48 @@ impl FlipFluid3D {
 
         for k in 0..nz {
             for j in 0..ny {
-                let u_idx = nx + (nx + 1) * (j + ny * k);
+                let u_idx = self.mac.u_idx(nx, j, k);
 
                 if !visited_u[u_idx] {
                     let mut u_counter: u8 = 0;
 
                     let u_left = if visited_u[u_idx - 1] {
                         u_counter += 1;
-                        self.mac.u[(nx - 1, j, k)]
+                        self.mac.u[u_idx - 1]
                     } else {
                         0.0
                     };
 
                     let u_down = if j > 0 && visited_u[u_idx - (nx + 1)] {
                         u_counter += 1;
-                        self.mac.u[(nx, j - 1, k)]
+                        self.mac.u[u_idx - (nx + 1)]
                     } else {
                         0.0
                     };
 
                     let u_up = if j < ny - 1 && visited_u[u_idx + (nx + 1)] {
                         u_counter += 1;
-                        self.mac.u[(nx, j + 1, k)]
+                        self.mac.u[u_idx + (nx + 1)]
                     } else {
                         0.0
                     };
 
                     let u_back = if k > 0 && visited_u[u_idx - (nx + 1) * ny] {
                         u_counter += 1;
-                        self.mac.u[(nx, j, k - 1)]
+                        self.mac.u[u_idx - (nx + 1) * ny]
                     } else {
                         0.0
                     };
 
                     let u_front = if k < nz - 1 && visited_u[u_idx + (nx + 1) * ny] {
                         u_counter += 1;
-                        self.mac.u[(nx, j, k + 1)]
+                        self.mac.u[u_idx + (nx + 1) * ny]
                     } else {
                         0.0
                     };
 
                     if u_counter != 0 {
-                        self.mac.u[(nx, j, k)] = (u_left + u_down + u_up + u_back + u_front) / u_counter as f32;
+                        self.mac.u[u_idx] = (u_left + u_down + u_up + u_back + u_front) / u_counter as f32;
                     }
                 }
             }
@@ -678,48 +699,48 @@ impl FlipFluid3D {
 
         for k in 0..nz {
             for i in 0..nx {
-                let v_idx = i + nx * (ny + (ny + 1) * k);
+                let v_idx = self.mac.v_idx(i, ny, k);
 
                 if !visited_v[v_idx] {
                     let mut v_counter: u8 = 0;
 
                     let v_left = if i > 0 && visited_v[v_idx - 1] {
                         v_counter += 1;
-                        self.mac.v[(i - 1, ny, k)]
+                        self.mac.v[v_idx - 1]
                     } else {
                         0.0
                     };
 
                     let v_right = if i < nx - 1 && visited_v[v_idx + 1] {
                         v_counter += 1;
-                        self.mac.v[(i + 1, ny, k)]
+                        self.mac.v[v_idx + 1]
                     } else {
                         0.0
                     };
 
                     let v_down = if visited_v[v_idx - nx] {
                         v_counter += 1;
-                        self.mac.v[(i, ny - 1, k)]
+                        self.mac.v[v_idx - nx]
                     } else {
                         0.0
                     };
 
                     let v_back = if k > 0 && visited_v[v_idx - nx * (ny + 1)] {
                         v_counter += 1;
-                        self.mac.v[(i, ny, k - 1)]
+                        self.mac.v[v_idx - nx * (ny + 1)]
                     } else {
                         0.0
                     };
 
                     let v_front = if k < nz - 1 && visited_v[v_idx + nx * (ny + 1)] {
                         v_counter += 1;
-                        self.mac.v[(i, ny, k + 1)]
+                        self.mac.v[v_idx + nx * (ny + 1)]
                     } else {
                         0.0
                     };
 
                     if v_counter != 0 {
-                        self.mac.v[(i, ny, k)] = (v_left + v_right + v_down + v_back + v_front) / v_counter as f32;
+                        self.mac.v[v_idx] = (v_left + v_right + v_down + v_back + v_front) / v_counter as f32;
                     }
                 }
             }
@@ -727,48 +748,48 @@ impl FlipFluid3D {
 
         for j in 0..ny {
             for i in 0..nx {
-                let w_idx = i + nx * (j + ny * nz);
+                let w_idx = self.mac.w_idx(i, j, nz);
 
                 if !visited_w[w_idx] {
                     let mut w_counter: u8 = 0;
 
                     let w_left = if i > 0 && visited_w[w_idx - 1] {
                         w_counter += 1;
-                        self.mac.w[(i - 1, j, nz)]
+                        self.mac.w[w_idx - 1]
                     } else {
                         0.0
                     };
 
                     let w_right = if i < nx - 1 && visited_w[w_idx + 1] {
                         w_counter += 1;
-                        self.mac.w[(i + 1, j, nz)]
+                        self.mac.w[w_idx + 1]
                     } else {
                         0.0
                     };
 
                     let w_down = if j > 0 && visited_w[w_idx - nx] {
                         w_counter += 1;
-                        self.mac.w[(i, j - 1, nz)]
+                        self.mac.w[w_idx - nx]
                     } else {
                         0.0
                     };
 
                     let w_up = if j < ny - 1 && visited_w[w_idx + nx] {
                         w_counter += 1;
-                        self.mac.w[(i, j + 1, nz)]
+                        self.mac.w[w_idx + nx]
                     } else {
                         0.0
                     };
 
                     let w_back = if visited_w[w_idx - nx * ny] {
                         w_counter += 1;
-                        self.mac.w[(i, j, nz - 1)]
+                        self.mac.w[w_idx - nx * ny]
                     } else {
                         0.0
                     };
 
                     if w_counter != 0 {
-                        self.mac.w[(i, j, nz)] = (w_left + w_right + w_down + w_up + w_back) / w_counter as f32;
+                        self.mac.w[w_idx] = (w_left + w_right + w_down + w_up + w_back) / w_counter as f32;
                     }
                 }
             }
@@ -813,32 +834,37 @@ impl FlipFluid3D {
         let cp = self.density * self.mac.spacing / dt;
 
         for _iter in 0..num_iters {
-            for i in 1..nx - 1 {
+            for k in 1..nz - 1 {
                 for j in 1..ny - 1 {
-                    for k in 1..nz - 1 {
-                        if self.mac.cell_type[(i, j, k)] != CellType::Fluid {
+                    for i in 1..nx - 1 {
+                        let idx = self.mac.idx(i, j, k);
+                        let u_idx = self.mac.u_idx(i, j, k);
+                        let v_idx = self.mac.v_idx(i, j, k);
+                        let w_idx = self.mac.w_idx(i, j, k);
+                        
+                        if self.mac.cell_type[idx] != CellType::Fluid {
                             continue;
                         }
 
-                        let sx0 = if self.mac.solid[(i - 1, j, k)] { 0.0 } else { 1.0 };
-                        let sx1 = if self.mac.solid[(i + 1, j, k)] { 0.0 } else { 1.0 };
-                        let sy0 = if self.mac.solid[(i, j - 1, k)] { 0.0 } else { 1.0 };
-                        let sy1 = if self.mac.solid[(i, j + 1, k)] { 0.0 } else { 1.0 };
-                        let sz0 = if self.mac.solid[(i, j, k - 1)] { 0.0 } else { 1.0 };
-                        let sz1 = if self.mac.solid[(i, j, k + 1)] { 0.0 } else { 1.0 };
+                        let sx0 = if self.mac.solid[idx - 1] { 0.0 } else { 1.0 };
+                        let sx1 = if self.mac.solid[idx + 1] { 0.0 } else { 1.0 };
+                        let sy0 = if self.mac.solid[idx - nx] { 0.0 } else { 1.0 };
+                        let sy1 = if self.mac.solid[idx + nx] { 0.0 } else { 1.0 };
+                        let sz0 = if self.mac.solid[idx - nx * ny] { 0.0 } else { 1.0 };
+                        let sz1 = if self.mac.solid[idx + nx * ny] { 0.0 } else { 1.0 };
                         let s = sx0 + sx1 + sy0 + sy1 + sz0 + sz1;
 
                         if s == 0.0 {
                             continue;
                         }
 
-                        let mut div = self.mac.u[(i + 1, j, k)] - self.mac.u[(i, j, k)]
-                            + self.mac.v[(i, j + 1, k)] - self.mac.v[(i, j, k)]
-                            + self.mac.w[(i, j, k + 1)] - self.mac.w[(i, j, k)];
+                        let mut div = self.mac.u[u_idx + 1] - self.mac.u[u_idx]
+                            + self.mac.v[v_idx + nx] - self.mac.v[v_idx]
+                            + self.mac.w[w_idx + nx * ny] - self.mac.w[w_idx];
 
                         if self.rest_density > 0.0 && compensate_drift {
                             let stiffness = 1.0;
-                            let compression = self.mac.densities[(i, j, k)] - self.rest_density;
+                            let compression = self.mac.densities[idx] - self.rest_density;
                             if compression > 0.0 {
                                 div -= stiffness * compression;
                             }
@@ -846,14 +872,14 @@ impl FlipFluid3D {
 
                         let mut p = -div / s;
                         p *= over_relaxation;
-                        self.mac.pressure[(i, j, k)] += cp * p;
+                        self.mac.pressure[idx] += cp * p;
 
-                        self.mac.u[(i, j, k)] -= sx0 * p;
-                        self.mac.u[(i + 1, j, k)] += sx1 * p;
-                        self.mac.v[(i, j, k)] -= sy0 * p;
-                        self.mac.v[(i, j + 1, k)] += sy1 * p;
-                        self.mac.w[(i, j, k)] -= sz0 * p;
-                        self.mac.w[(i, j, k + 1)] += sz1 * p;
+                        self.mac.u[u_idx] -= sx0 * p;
+                        self.mac.u[u_idx + 1] += sx1 * p;
+                        self.mac.v[v_idx] -= sy0 * p;
+                        self.mac.v[v_idx + nx] += sy1 * p;
+                        self.mac.w[w_idx] -= sz0 * p;
+                        self.mac.w[w_idx + nx * ny] += sz1 * p;
                     }
                 }
             }
@@ -864,19 +890,24 @@ impl FlipFluid3D {
         for i in 1..self.mac.nx - 1 {
             for j in 1..self.mac.ny - 1 {
                 for k in 1..self.mac.nz - 1 {
-                    self.mac.solid[(i, j, k)] = false;
+                    let idx = self.mac.idx(i, j, k);
+                    let u_idx = self.mac.u_idx(i, j, k);
+                    let v_idx = self.mac.v_idx(i, j, k);
+                    let w_idx = self.mac.w_idx(i, j, k);
+
+                    self.mac.solid[idx] = false;
                     let p = Vec3::new(i as f32 + 0.5, j as f32 + 0.5, k as f32 + 0.5) * self.mac.spacing;
                     let sdf = obstacles.sdf(p.into());
 
                     if sdf.distance < 0.0 {
                         let v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
-                        self.mac.solid[(i, j, k)] = true;
-                        self.mac.u[(i, j, k)] = v.x;
-                        self.mac.v[(i, j, k)] = v.y;
-                        self.mac.w[(i, j, k)] = v.z;
-                        self.mac.u[(i + 1, j, k)] = v.x;
-                        self.mac.v[(i, j + 1, k)] = v.y;
-                        self.mac.w[(i, j, k + 1)] = v.z;
+                        self.mac.solid[idx] = true;
+                        self.mac.u[u_idx] = v.x;
+                        self.mac.v[v_idx] = v.y;
+                        self.mac.w[w_idx] = v.z;
+                        self.mac.u[u_idx + 1] = v.x;
+                        self.mac.v[v_idx + self.mac.nx] = v.y;
+                        self.mac.w[w_idx + self.mac.nx * self.mac.ny] = v.z;
                     }
                 }
             }
@@ -897,14 +928,17 @@ impl FlipFluid3D {
         let dy = (p.y * h1) - (y0 as f32 + 0.5);
         let dz = (p.z * h1) - (z0 as f32 + 0.5);
 
-        let v000 = self.mac.densities.get((x0, y0, z0)).copied().unwrap_or(0.0);
-        let v001 = self.mac.densities.get((x0, y0, z1)).copied().unwrap_or(0.0);
-        let v010 = self.mac.densities.get((x0, y1, z0)).copied().unwrap_or(0.0);
-        let v011 = self.mac.densities.get((x0, y1, z1)).copied().unwrap_or(0.0);
-        let v100 = self.mac.densities.get((x1, y0, z0)).copied().unwrap_or(0.0);
-        let v101 = self.mac.densities.get((x1, y0, z1)).copied().unwrap_or(0.0);
-        let v110 = self.mac.densities.get((x1, y1, z0)).copied().unwrap_or(0.0);
-        let v111 = self.mac.densities.get((x1, y1, z1)).copied().unwrap_or(0.0);
+        let nx = self.mac.nx;
+        let ny = self.mac.ny;
+
+        let v000 = self.mac.densities.get(x0 + nx * (y0 + ny * z0)).copied().unwrap_or(0.0);
+        let v001 = self.mac.densities.get(x0 + nx * (y0 + ny * z1)).copied().unwrap_or(0.0);
+        let v010 = self.mac.densities.get(x0 + nx * (y1 + ny * z0)).copied().unwrap_or(0.0);
+        let v011 = self.mac.densities.get(x0 + nx * (y1 + ny * z1)).copied().unwrap_or(0.0);
+        let v100 = self.mac.densities.get(x1 + nx * (y0 + ny * z0)).copied().unwrap_or(0.0);
+        let v101 = self.mac.densities.get(x1 + nx * (y0 + ny * z1)).copied().unwrap_or(0.0);
+        let v110 = self.mac.densities.get(x1 + nx * (y1 + ny * z0)).copied().unwrap_or(0.0);
+        let v111 = self.mac.densities.get(x1 + nx * (y1 + ny * z1)).copied().unwrap_or(0.0);
 
         v000 * (1.0 - dx) * (1.0 - dy) * (1.0 - dz)
             + v001 * (1.0 - dx) * (1.0 - dy) * dz
