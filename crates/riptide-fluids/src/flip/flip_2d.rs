@@ -1,7 +1,6 @@
 use std::f32::consts::PI;
 
 use glam::{UVec2, Vec2};
-use ndarray::azip;
 
 use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 
@@ -252,12 +251,12 @@ impl FlipFluid2D {
             let mut sum: f32 = 0.0;
             let mut num_fluid_cells: usize = 0;
 
-            azip!((&cell_type in &self.mac.cell_type, &density in &self.mac.densities) {
+            for (&cell_type, &density) in self.mac.cell_type.iter().zip(self.mac.densities.iter()) {
                 if cell_type == CellType::Fluid {
                     sum += density;
                     num_fluid_cells += 1;
                 }
-            });
+            }
 
             if num_fluid_cells > 0 {
                 self.rest_density = sum / num_fluid_cells as f32;
@@ -281,9 +280,9 @@ impl FlipFluid2D {
         let h4 = h2 * h2;
         let coeff = 315.0 / (64.0 * PI * h4 * h4 * h);
 
-        azip!((cell_type in &mut self.mac.cell_type, &s in &self.mac.solid) {
+        for (cell_type, &s) in self.mac.cell_type.iter_mut().zip(self.mac.solid.iter()) {
             *cell_type = if s { CellType::Solid } else { CellType::Air };
-        });
+        }
 
         for i in 0..self.n_particles {
             let pos = self.positions[i];
