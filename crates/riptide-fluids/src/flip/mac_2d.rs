@@ -252,7 +252,7 @@ fn get_bilerp_y(
     grid_size: UVec2,
     size: Vec2,
     nx: usize,
-    ny: usize,
+    _ny: usize,
 ) -> (f32, f32) {
     let pi = (p * inv_spacing).floor().as_uvec2().clamp(UVec2::ZERO, grid_size - 1);
 
