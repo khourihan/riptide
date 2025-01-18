@@ -100,11 +100,15 @@ fn main() {
             let mut decoder = FluidDataDecoder::new(datdir);
             let meta = decoder.decode_metadata().unwrap();
 
-            if meta.dim == 2 {
-                riptide_view::view_2d(decoder, meta);
-            } else if meta.dim == 3 {
-                riptide_view::view_3d(decoder, meta);
+            if meta.dim != DIM as u8 {
+                println!("error: mismatched dimensions (expected {DIM} but got {})", meta.dim);
+                return;
             }
+
+            #[cfg(feature = "d2")]
+            riptide_view::view_2d(decoder, meta);
+            #[cfg(feature = "d3")]
+            riptide_view::view_3d(decoder, meta);
         },
     }
 }

@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use riptide_io::decode::{FluidDataDecoder as IoFluidDecoder, FluidMetadata as IoFluidMetadata};
 
+#[cfg(feature = "d2")]
 pub mod d2;
+#[cfg(feature = "d3")]
 pub mod d3;
 
 struct PlaybackPlugin;

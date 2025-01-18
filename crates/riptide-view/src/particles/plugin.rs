@@ -11,7 +11,7 @@ use bevy::{
     },
 };
 
-use crate::particles_3d::{pipeline::ParticleUniform, InstanceParticleData, Particle3d, PARTICLE_SHADER_HANDLE};
+use crate::particles::{pipeline::ParticleUniform, InstanceParticleData, Particle3d, PARTICLE_SHADER_HANDLE};
 
 use super::{
     extract::extract_particles,

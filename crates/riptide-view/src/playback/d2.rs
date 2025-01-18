@@ -1,6 +1,6 @@
 use bevy::{prelude::*, render::{camera::ScalingMode, view::NoFrustumCulling}};
 
-use crate::particles_3d::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d, ParticleLight};
+use crate::particles::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d, ParticleLight};
 
 use super::{FluidDataDecoder, FluidMetadata, PlaybackPlugin, PlaybackState, SetupState};
 

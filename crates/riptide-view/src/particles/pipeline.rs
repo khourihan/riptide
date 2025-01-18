@@ -10,7 +10,7 @@ use bevy::{
     }
 };
 
-use crate::particles_3d::{InstanceData, PARTICLE_SHADER_HANDLE};
+use crate::particles::{InstanceData, PARTICLE_SHADER_HANDLE};
 
 use super::{InstanceBuffer, InstanceParticleData, Particle3dDepth, Particle3dLockAxis};
 

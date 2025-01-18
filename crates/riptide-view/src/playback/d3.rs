@@ -1,7 +1,7 @@
 use bevy::{color::palettes::css::{GREEN, PURPLE}, prelude::*, render::view::NoFrustumCulling};
 use bevy_panorbit_camera::{PanOrbitCamera, PanOrbitCameraPlugin};
 
-use crate::particles_3d::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d, ParticleLight};
+use crate::particles::{plugin::Particle3dPlugin, InstanceData, InstanceParticleData, Particle3d, ParticleLight};
 
 use super::{FluidDataDecoder, FluidMetadata, PlaybackPlugin, PlaybackState, SetupState};
 
