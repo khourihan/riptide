@@ -9,3 +9,8 @@ riptide-fluids.workspace = true
 thiserror.workspace = true
 glam.workspace = true
 smallvec.workspace = true
+
+[features]
+default = [ "d2" ]
+d2 = []
+d3 = []

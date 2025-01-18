@@ -1,21 +1,23 @@
+use crate::Vector;
+
 use super::{obstacle::{Obstacle, ObstacleId, ObstacleSet}, Fluid};
 
-pub struct Scene<const D: usize, F, P> {
+pub struct Scene<F, P> {
     /// The fluid for this scene.
     pub fluid: F,
     /// The parameters for this scene's fluid.
     params: P,
     /// Domain size.
-    size: [f32; D],
+    size: Vector,
     /// The obstacles in this scene.
-    obstacles: ObstacleSet<D>,
+    obstacles: ObstacleSet,
     /// The number of obstacles (used for IDs).
     n_obstacles: usize,
 }
 
-impl<const D: usize, F: Fluid<D, Params = P>, P> Scene<D, F, P> {
+impl<F: Fluid<Params = P>, P> Scene<F, P> {
     #[inline(always)]
-    pub fn new(fluid: F, params: P, size: [f32; D]) -> Self {
+    pub fn new(fluid: F, params: P, size: Vector) -> Self {
         Self {
             params,
             fluid,
@@ -26,12 +28,12 @@ impl<const D: usize, F: Fluid<D, Params = P>, P> Scene<D, F, P> {
     }
 
     #[inline(always)]
-    pub fn size(&self) -> [f32; D] {
+    pub fn size(&self) -> Vector {
         self.size
     }
 
     /// Adds an obstacle to the set, returning its ID.
-    pub fn add_obstacle<T: Obstacle<D> + 'static>(&mut self, obstacle: T) -> ObstacleId {
+    pub fn add_obstacle<T: Obstacle + 'static>(&mut self, obstacle: T) -> ObstacleId {
         let i = self.n_obstacles;
         self.n_obstacles += 1;
 
@@ -40,13 +42,13 @@ impl<const D: usize, F: Fluid<D, Params = P>, P> Scene<D, F, P> {
     }
 
     /// Removes an obstacle from the set, given its ID.
-    pub fn remove_obstacle(&mut self, id: ObstacleId) -> Option<Box<dyn Obstacle<D>>> {
+    pub fn remove_obstacle(&mut self, id: ObstacleId) -> Option<Box<dyn Obstacle>> {
         self.obstacles.obstacles.remove(&id.0)
     }
 
     /// Insert an obstacle into the set at the given ID, overriding and returning the old value if
     /// it was previously in the set.
-    pub fn insert_obstacle<T: Obstacle<D> + 'static>(&mut self, id: ObstacleId, obstacle: T) -> Option<Box<dyn Obstacle<D>>> {
+    pub fn insert_obstacle<T: Obstacle + 'static>(&mut self, id: ObstacleId, obstacle: T) -> Option<Box<dyn Obstacle>> {
         self.obstacles.obstacles.insert(id.0, Box::new(obstacle))
     }
 

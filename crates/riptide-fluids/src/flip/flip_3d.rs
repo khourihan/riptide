@@ -7,7 +7,7 @@ use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 use super::{mac_3d::MacGrid3D, CellType};
 
 #[derive(Debug, Clone)]
-pub struct FlipFluid3D {
+pub struct FlipFluid {
     mac: MacGrid3D,
     /// The density of the fluid, in kg/m³.
     ///
@@ -35,7 +35,7 @@ pub struct FlipFluid3D {
     cell_particle_indices: Vec<usize>,
 }
 
-impl FlipFluid3D {
+impl FlipFluid {
     pub fn new(
         density: f32,
         size: Vec3,
@@ -98,11 +98,11 @@ impl FlipFluid3D {
         self.mac.spacing
     }
 
-    fn integrate_particles(&mut self, dt: f32, gravity: Vec3, obstacles: &ObstacleSet<3>) {
+    fn integrate_particles(&mut self, dt: f32, gravity: Vec3, obstacles: &ObstacleSet) {
         self.positions.iter().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
-            let sdf = obstacles.sdf((*p).into());
+            let sdf = obstacles.sdf(*p);
             if sdf.distance < 0.0 {
-                *v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
+                *v = -sdf.distance * sdf.gradient / dt;
             }
         });
         
@@ -886,7 +886,7 @@ impl FlipFluid3D {
         }
     }
 
-    fn set_obstacles(&mut self, obstacles: &ObstacleSet<3>, dt: f32) {
+    fn set_obstacles(&mut self, obstacles: &ObstacleSet, dt: f32) {
         for i in 1..self.mac.nx - 1 {
             for j in 1..self.mac.ny - 1 {
                 for k in 1..self.mac.nz - 1 {
@@ -897,10 +897,10 @@ impl FlipFluid3D {
 
                     self.mac.solid[idx] = false;
                     let p = Vec3::new(i as f32 + 0.5, j as f32 + 0.5, k as f32 + 0.5) * self.mac.spacing;
-                    let sdf = obstacles.sdf(p.into());
+                    let sdf = obstacles.sdf(p);
 
                     if sdf.distance < 0.0 {
-                        let v = -sdf.distance * Vec3::from(sdf.gradient) / dt;
+                        let v = -sdf.distance * sdf.gradient / dt;
                         self.mac.solid[idx] = true;
                         self.mac.u[u_idx] = v.x;
                         self.mac.v[v_idx] = v.y;
@@ -952,7 +952,7 @@ impl FlipFluid3D {
 }
 
 
-pub struct FlipFluid3DParams {
+pub struct FlipFluidParams {
     pub num_substeps: usize,
     pub gravity: Vec3,
     pub flip_ratio: f32,
@@ -962,7 +962,7 @@ pub struct FlipFluid3DParams {
     pub compensate_drift: bool,
 }
 
-impl Default for FlipFluid3DParams {
+impl Default for FlipFluidParams {
     fn default() -> Self {
         Self {
             num_substeps: 2,
@@ -976,10 +976,10 @@ impl Default for FlipFluid3DParams {
     }
 }
 
-impl Fluid<3> for FlipFluid3D {
-    type Params = FlipFluid3DParams;
+impl Fluid for FlipFluid {
+    type Params = FlipFluidParams;
 
-    fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet<3>) {
+    fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet) {
         let sdt = dt / params.num_substeps as f32;
 
         self.set_obstacles(obstacles, dt);

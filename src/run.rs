@@ -1,9 +1,14 @@
-use glam::{Vec2, Vec3};
 use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
 
-use riptide_fluids::{flip::{flip_2d::{FlipFluid2D, FlipFluid2DParams}, flip_3d::{FlipFluid3D, FlipFluid3DParams}}, obstacle::circle::Circle, scene::Scene};
+use riptide_fluids::{flip::{FlipFluid, FlipFluidParams}, scene::Scene};
 use riptide_io::encode::FluidDataEncoder;
 
+#[cfg(feature = "d2")]
+use glam::Vec2;
+#[cfg(feature = "d3")]
+use glam::Vec3;
+
+#[cfg(feature = "d2")]
 pub fn run_d2(
     mut encoder: FluidDataEncoder,
     fps: u32,
@@ -12,13 +17,15 @@ pub fn run_d2(
     resolution: u32,
     particle_radius: f32,
 ) {
+    use riptide_fluids::obstacle::Circle;
+
     let spacing = size.y / resolution as f32;
     let particle_radius = particle_radius * spacing;
 
-    let fluid = FlipFluid2D::new(1000.0, size, spacing, particle_radius);
-    let params = FlipFluid2DParams::default();
+    let fluid = FlipFluid::new(1000.0, size, spacing, particle_radius);
+    let params = FlipFluidParams::default();
 
-    let mut scene = Scene::new(fluid, params, [size.x, size.y]);
+    let mut scene = Scene::new(fluid, params, size);
 
     let water_height = 0.8;
     let water_width = 0.6;
@@ -100,6 +107,7 @@ pub fn run_d2(
     }
 }
 
+#[cfg(feature = "d3")]
 pub fn run_d3(
     mut encoder: FluidDataEncoder,
     fps: u32,
@@ -111,10 +119,10 @@ pub fn run_d3(
     let spacing = size.y / resolution as f32;
     let particle_radius = particle_radius * spacing;
 
-    let fluid = FlipFluid3D::new(1000.0, size, spacing, particle_radius);
-    let params = FlipFluid3DParams::default();
+    let fluid = FlipFluid::new(1000.0, size, spacing, particle_radius);
+    let params = FlipFluidParams::default();
 
-    let mut scene = Scene::new(fluid, params, [size.x, size.y, size.z]);
+    let mut scene = Scene::new(fluid, params, size);
 
     let water_height = 0.8;
     let water_width = 0.6;

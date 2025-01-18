@@ -7,7 +7,7 @@ use crate::{obstacle::{Obstacle, ObstacleSet}, Fluid};
 use super::{mac_2d::MacGrid2D, CellType};
 
 #[derive(Debug, Clone)]
-pub struct FlipFluid2D {
+pub struct FlipFluid {
     /// MAC grid.
     mac: MacGrid2D,
     /// The density of the fluid, in kg/m³.
@@ -36,7 +36,7 @@ pub struct FlipFluid2D {
     cell_particle_indices: Vec<usize>,
 }
 
-impl FlipFluid2D {
+impl FlipFluid {
     pub fn new(
         density: f32,
         size: Vec2,
@@ -102,11 +102,11 @@ impl FlipFluid2D {
         self.mac.spacing
     }
 
-    fn integrate_particles(&mut self, dt: f32, gravity: Vec2, obstacles: &ObstacleSet<2>) {
+    fn integrate_particles(&mut self, dt: f32, gravity: Vec2, obstacles: &ObstacleSet) {
         self.positions.iter().zip(self.velocities.iter_mut()).for_each(|(p, v)| {
-            let sdf = obstacles.sdf((*p).into());
+            let sdf = obstacles.sdf(*p);
             if sdf.distance < 0.0 {
-                *v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
+                *v = -sdf.distance * sdf.gradient / dt;
             }
         });
 
@@ -623,7 +623,7 @@ impl FlipFluid2D {
         }
     }
 
-    fn set_obstacles(&mut self, obstacles: &ObstacleSet<2>, dt: f32) {
+    fn set_obstacles(&mut self, obstacles: &ObstacleSet, dt: f32) {
         for i in 1..self.mac.nx - 1 {
             for j in 1..self.mac.ny - 1 {
                 let idx = self.mac.idx(i, j);
@@ -632,10 +632,10 @@ impl FlipFluid2D {
                 
                 self.mac.solid[idx] = false;
                 let p = Vec2::new(i as f32 + 0.5, j as f32 + 0.5) * self.mac.spacing;
-                let sdf = obstacles.sdf(p.into());
+                let sdf = obstacles.sdf(p);
 
                 if sdf.distance < 0.0 {
-                    let v = -sdf.distance * Vec2::from(sdf.gradient) / dt;
+                    let v = -sdf.distance * sdf.gradient / dt;
                     self.mac.solid[idx] = true;
                     self.mac.u[u_idx] = v.x;
                     self.mac.v[v_idx] = v.y;
@@ -669,7 +669,7 @@ impl FlipFluid2D {
     }
 }
 
-pub struct FlipFluid2DParams {
+pub struct FlipFluidParams {
     pub num_substeps: usize,
     pub gravity: Vec2,
     pub flip_ratio: f32,
@@ -679,7 +679,7 @@ pub struct FlipFluid2DParams {
     pub compensate_drift: bool,
 }
 
-impl Default for FlipFluid2DParams {
+impl Default for FlipFluidParams {
     fn default() -> Self {
         Self {
             num_substeps: 2,
@@ -693,10 +693,10 @@ impl Default for FlipFluid2DParams {
     }
 }
 
-impl Fluid<2> for FlipFluid2D {
-    type Params = FlipFluid2DParams;
+impl Fluid for FlipFluid {
+    type Params = FlipFluidParams;
 
-    fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet<2>) {
+    fn step(&mut self, dt: f32, params: &Self::Params, obstacles: &ObstacleSet) {
         let sdt = dt / params.num_substeps as f32;
 
         self.set_obstacles(obstacles, dt);

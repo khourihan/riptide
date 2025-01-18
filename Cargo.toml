@@ -11,9 +11,9 @@ members = [
 ]
 
 [workspace.dependencies]
-riptide-fluids = { path = "crates/riptide-fluids" }
-riptide-io = { path = "crates/riptide-io" }
-riptide-view = { path = "crates/riptide-view" }
+riptide-fluids = { path = "crates/riptide-fluids", default-features = false }
+riptide-io = { path = "crates/riptide-io", default-features = false }
+riptide-view = { path = "crates/riptide-view", default-features = false }
 
 glam = "0.29.2"
 ndarray = "0.16.1"
@@ -31,3 +31,8 @@ indicatif.workspace = true
 smallvec.workspace = true
 
 clap = { version = "4.5.23", features = [ "derive" ] }
+
+[features]
+default = [ "d2" ]
+d2 = [ "riptide-fluids/d2", "riptide-io/d2" ]
+d3 = [ "riptide-fluids/d3", "riptide-io/d3" ]

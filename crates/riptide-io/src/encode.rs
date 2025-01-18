@@ -8,6 +8,11 @@ use crate::EncodeFluid;
 
 use super::as_bytes::AsBytes;
 
+#[cfg(feature = "d2")]
+const DIM: usize = 2;
+#[cfg(feature = "d3")]
+const DIM: usize = 3;
+
 pub struct FluidDataEncoder {
     /// The path to the directory into which the fluid data will be placed.
     path: PathBuf,
@@ -35,27 +40,27 @@ impl FluidDataEncoder {
         self.path.join(format!("{}{frame}.dat", "0".repeat(zeros as usize)))
     }
 
-    pub fn encode_metadata<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>) -> Result<(), EncodingError>
+    pub fn encode_metadata<F, P>(&mut self, scene: &Scene<F, P>) -> Result<(), EncodingError>
     where 
-        F: Fluid<D, Params = P>,
+        F: Fluid<Params = P>,
     {
         let path = self.path.join("_meta");
         let mut writer = File::create(path)?;
 
-        writer.write_all(&[D as u8])?;
+        writer.write_all(&[DIM as u8])?;
         writer.write_all(&self.fps.to_ne_bytes())?;
         writer.write_all(&self.num_frames.to_ne_bytes())?;
 
         writer.write_all(&scene.fluid.particle_radius().to_ne_bytes())?;
 
-        for i in 0..D {
+        for i in 0..DIM {
             writer.write_all(&scene.size()[i].to_bytes())?;
         }
 
         Ok(())
     }
 
-    pub fn encode_frame<const D: usize, F, P>(&mut self, scene: &Scene<D, F, P>) -> Result<(), EncodingError>
+    pub fn encode_frame<F, P>(&mut self, scene: &Scene<F, P>) -> Result<(), EncodingError>
     where 
         F: EncodeFluid,
     {

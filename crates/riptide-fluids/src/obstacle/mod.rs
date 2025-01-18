@@ -1,20 +1,26 @@
 use std::collections::HashMap;
 
-pub mod circle;
+use crate::Vector;
+
+#[cfg(feature = "d2")]
+mod circle;
+
+#[cfg(feature = "d2")]
+pub use circle::Circle;
 
 /// An obstacle for a fluid that is unaffected by buoyancy forces.
-pub trait Obstacle<const D: usize> {
-    fn sdf(&self, p: [f32; D]) -> Sdf<D>;
+pub trait Obstacle {
+    fn sdf(&self, p: Vector) -> Sdf;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sdf<const D: usize> {
+pub struct Sdf {
     pub distance: f32,
-    pub gradient: [f32; D],
+    pub gradient: Vector,
 }
 
-impl<const D: usize> Sdf<D> {
-    pub fn new(distance: f32, gradient: [f32; D]) -> Sdf<D> {
+impl Sdf {
+    pub fn new(distance: f32, gradient: Vector) -> Sdf {
         Sdf { distance, gradient }
     }
 }
@@ -23,22 +29,22 @@ impl<const D: usize> Sdf<D> {
 pub struct ObstacleId(pub usize);
 
 #[derive(Default)]
-pub struct ObstacleSet<const D: usize> {
-    pub obstacles: HashMap<usize, Box<dyn Obstacle<D>>>,
+pub struct ObstacleSet {
+    pub obstacles: HashMap<usize, Box<dyn Obstacle>>,
 }
 
-impl<const D: usize> ObstacleSet<D> {
-    pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle<D>>>) -> Self {
+impl ObstacleSet {
+    pub fn new(obstacles: HashMap<usize, Box<dyn Obstacle>>) -> Self {
         ObstacleSet {
             obstacles,
         }
     }
 }
 
-impl<const D: usize> Obstacle<D> for ObstacleSet<D> {
-    fn sdf(&self, p: [f32; D]) -> Sdf<D> {
+impl Obstacle for ObstacleSet {
+    fn sdf(&self, p: Vector) -> Sdf {
         let mut dist = f32::MAX;
-        let mut gradient = [0.0; D];
+        let mut gradient = Vector::ZERO;
 
         for obstacle in self.obstacles.values() {
             let sd = obstacle.sdf(p);
